@@ -81,16 +81,8 @@ nvidia = [
     "torchvision==0.23.0",
     "pyannote-audio",
     "kaldifeat",
-    "cudf-cu12==25.12.*",
-    "dask-cudf-cu12==25.12.*",
-    "cuml-cu12==25.12.*",
-    "cugraph-cu12==25.12.*",
-    "nx-cugraph-cu12==25.12.*",
-    "cuxfilter-cu12==25.12.*",
-    "cucim-cu12==25.12.*",
-    "pylibraft-cu12==25.12.*",
-    "raft-dask-cu12==25.12.*",
-    "cuvs-cu12==25.12.*"
+    "cuml-cu12",
+    "cudf-cu12",
 ]
 
 # Same as nvidia, without RAPIDS and kaldifeat
@@ -194,13 +186,5 @@ torchvision = [
 kaldifeat = { index = "kaldifeat-cuda" }
 
 # RAPIDS packages
-cudf-cu12 = { index = "nvidia-rapids" }
-dask-cudf-cu12 = { index = "nvidia-rapids" }
 cuml-cu12 = { index = "nvidia-rapids" }
-cugraph-cu12 = { index = "nvidia-rapids" }
-nx-cugraph-cu12 = { index = "nvidia-rapids" }
-cuxfilter-cu12 = { index = "nvidia-rapids" }
-cucim-cu12 = { index = "nvidia-rapids" }
-pylibraft-cu12 = { index = "nvidia-rapids" }
-raft-dask-cu12 = { index = "nvidia-rapids" }
-cuvs-cu12 = { index = "nvidia-rapids" }
+cudf-cu12 = { index = "nvidia-rapids" }
