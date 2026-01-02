@@ -9,7 +9,7 @@ On Apple M3, 1 hour in 7.7 seconds.
 
 The pipeline achieves a best score of 13.5% DER on VoxConverse, 13.3% on AISHELL-4, and 26.5% on AMI-IHM. See the [evaluation](/evaluation) directory for more benchmarks and comparison with other diarization systems.
 
-Senko powers the [Zanshin](https://github.com/narcotic-sh/zanshin) media player.
+Senko powers the [Zanshin](https://zanshin.sh) media player.
 
 ## Usage
 ```python
@@ -103,11 +103,11 @@ On a Ryzen 9 9950X, it takes 42 seconds to process 1 hour of audio.
 <details>
 <summary>Does the entire pipeline run fully on the GPU, if available?</summary>
 <br>
-With <code>cuda</code>, all parts of the pipeline run on the GPU by default. Clustering runs on the GPU only when your NVIDIA card has CUDA compute capability &ge; 7.0 (~GTX 16 series and newer); otherwise clustering falls back to the CPU. However, CPU performance still impacts overall diarization speed.
+On Linux/WSL with <code>device=cuda</code>, all parts of the pipeline run on the GPU, so long as the NVIDIA card has CUDA compute capability &ge; 7.0 (~GTX 16 series and newer); otherwise clustering falls back to the CPU.
 <br><br>
-During the embeddings generation phase, for example, model inference runs on the GPU with minimal CPU–GPU transfers, while the Python loop that batches and dispatches work is single‑threaded on the CPU. Thus, a faster CPU shortens that orchestration overhead, keeping the GPU fed. For best throughput, pair a fast GPU with a CPU that has strong single‑threaded performance; the CPU bottleneck becomes more noticeable with very fast GPUs (e.g., RTX 5090).
+On native Windows with <code>device=cuda</code>, everything except fbank extraction and clustering run on the GPU.
 <br><br>
-On Mac, VAD and embeddings run on the ANE and CPU through CoreML, and fbank and clustering run on the CPU.
+On Mac, VAD and embeddings run on the ANE and CPU through CoreML, and fbank extraction and clustering run on the CPU.
 </details>
 <details>
 <summary>Known limitations?</summary>
