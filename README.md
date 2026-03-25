@@ -74,8 +74,9 @@ On Linux/WSL, both Pyannote segmentation-3.0 and CAM++ run using PyTorch, but on
 |----------|-------------|
 | [reaper_speech_diarizer](https://github.com/atmosfar/reaper_speech_diarizer) | Split a downmixed voice recording into separate tracks for each speaker in REAPER DAW |
 | [scribe](https://github.com/trailofbits/scribe) | Produce speaker-attributed transcripts using [parakeet-mlx](https://github.com/senstella/parakeet-mlx) and Senko |
+| [verbatim](https://github.com/gaspardpetit/verbatim) | High quality multilingual speech to text with diarization |
 
-Create a PR or message on Discord if you'd like your application that uses Senko added here too!
+Create a PR or message on Discord if you'd like your application that uses Senko added here too.
 
 ## FAQ
 <details>
