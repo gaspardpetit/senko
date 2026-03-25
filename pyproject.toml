@@ -70,7 +70,7 @@ nvidia-old = [
     "torch==2.8.0",
     "torchaudio==2.8.0",
     "torchvision==0.23.0",
-    "pyannote-audio",
+    "pyannote-audio==3.4.0",
     "kaldifeat"
 ]
 
@@ -79,7 +79,7 @@ nvidia = [
     "torch==2.8.0",
     "torchaudio==2.8.0",
     "torchvision==0.23.0",
-    "pyannote-audio",
+    "pyannote-audio==3.4.0",
     "kaldifeat",
     "cuml-cu12",
     "cudf-cu12",

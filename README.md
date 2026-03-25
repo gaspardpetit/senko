@@ -20,11 +20,6 @@ diarizer = senko.Diarizer(device='auto', warmup=True, quiet=False)
 wav_path = 'audio.wav' # 16kHz mono 16-bit wav
 result = diarizer.diarize(wav_path, generate_colors=False)
 
-# In-memory audio
-# samples: 1-D mono 16kHz numpy array / torch tensor
-# floats must be normalized to [-1, 1]; integer PCM dtypes: uint8, int16, int32
-result = diarizer.diarize_samples(samples, sample_rate=16000, generate_colors=False)
-
 senko.save_json(result["merged_segments"], 'audio_diarized.json')
 senko.save_rttm(result["merged_segments"], wav_path, 'audio_diarized.rttm')
 ```
@@ -73,8 +68,6 @@ The following modifications have been made:
 - Clustering when on NVIDIA (with a GPU of CUDA compute capability 7.0+) can be done on the GPU through [RAPIDS](https://docs.rapids.ai/api/cuml/stable/zero-code-change/)
 
 On Linux/WSL, both Pyannote segmentation-3.0 and CAM++ run using PyTorch, but on Mac, both models run through CoreML. The CAM++ CoreML conversion was done from scratch in this project (see [`tracing/coreml`](tracing/coreml)), but the segmentation-3.0 converted model and interfacing code is taken from the excellent [FluidAudio](https://github.com/FluidInference/FluidAudio) project by Fluid Inference.
-
-The in-memory API `diarize_samples(...)` works across the supported platforms with 1-D mono 16kHz `numpy.ndarray` / `torch.Tensor` inputs using normalized floating-point audio in `[-1, 1]` or PCM `uint8` / `int16` / `int32` dtypes.
 
 ## Showcase
 | Application | Description |
