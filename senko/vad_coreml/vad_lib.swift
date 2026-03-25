@@ -258,6 +258,12 @@ private struct WavParseError: Error, LocalizedError {
     var errorDescription: String? { message }
 }
 
+private struct BorrowedAudioChunk {
+    let startIndex: Int
+    let sampleCount: Int
+    let chunkOffset: Double
+}
+
 private func parseWavHeader(fd: Int32) throws -> WavInfo {
     var statBuf = stat()
     guard fstat(fd, &statBuf) == 0 else {
@@ -433,6 +439,52 @@ private func parseWavHeader(fd: Int32) throws -> WavInfo {
         }
     }
 
+    public func processAudioSamples(_ samplesPtr: UnsafePointer<Float>, sampleCount: Int) -> [VADSegment] {
+        guard let model = segmentationModel else {
+            print("Model not loaded")
+            return []
+        }
+
+        guard sampleCount > 0 else {
+            return []
+        }
+
+        var allSegments: [VADSegment] = []
+        let batchSize = 64
+        var batch: [BorrowedAudioChunk] = []
+        batch.reserveCapacity(batchSize)
+
+        var offsetSamples = 0
+        while offsetSamples < sampleCount {
+            let samplesToRead = min(chunkSize, sampleCount - offsetSamples)
+            if samplesToRead <= 0 {
+                break
+            }
+
+            let chunkOffsetTime = Double(offsetSamples) / Double(sampleRate)
+            batch.append(BorrowedAudioChunk(
+                startIndex: offsetSamples,
+                sampleCount: samplesToRead,
+                chunkOffset: chunkOffsetTime
+            ))
+
+            if batch.count >= batchSize {
+                let batchSegments = processBatch(samplesPtr: samplesPtr, batch: batch, model: model)
+                allSegments.append(contentsOf: batchSegments)
+                batch.removeAll(keepingCapacity: true)
+            }
+
+            offsetSamples += samplesToRead
+        }
+
+        if !batch.isEmpty {
+            let batchSegments = processBatch(samplesPtr: samplesPtr, batch: batch, model: model)
+            allSegments.append(contentsOf: batchSegments)
+        }
+
+        return mergeSegments(allSegments)
+    }
+
     private func processStreamedWav(at path: String, model: MLModel) throws -> [VADSegment] {
         let fd = open(path, O_RDONLY)
         if fd < 0 {
@@ -558,6 +610,42 @@ private func parseWavHeader(fd: Int32) throws -> WavInfo {
         return allSegments
     }
 
+    // Process a batch of borrowed chunks concurrently
+    private func processBatch(samplesPtr: UnsafePointer<Float>, batch: [BorrowedAudioChunk], model: MLModel) -> [VADSegment] {
+        var allSegments: [VADSegment] = []
+        let semaphore = DispatchSemaphore(value: 0)
+        let queue = DispatchQueue.global(qos: .userInitiated)
+        var results: [[VADSegment]?] = Array(repeating: nil, count: batch.count)
+
+        // Process each chunk in the batch concurrently
+        for (index, chunk) in batch.enumerated() {
+            queue.async {
+                do {
+                    let segments = try self.processChunkOptimized(samplesPtr: samplesPtr, chunk: chunk, model: model)
+                    results[index] = segments
+                } catch {
+                    print("Error processing chunk: \(error)")
+                    results[index] = []
+                }
+                semaphore.signal()
+            }
+        }
+
+        // Wait for all chunks to complete
+        for _ in 0..<batch.count {
+            semaphore.wait()
+        }
+
+        // Collect results in order
+        for segments in results {
+            if let segments = segments {
+                allSegments.append(contentsOf: segments)
+            }
+        }
+
+        return allSegments
+    }
+
     // Optimized chunk processing with buffer reuse
     private func processChunkOptimized(_ audioChunk: ArraySlice<Float>, model: MLModel, chunkOffset: Double) throws -> [VADSegment] {
         // Get pooled buffer for this thread
@@ -613,6 +701,64 @@ private func parseWavHeader(fd: Int32) throws -> WavInfo {
 
         // Process segments with optimized memory access
         return processSegmentsOptimized(segmentOutput, chunkOffset: chunkOffset)
+    }
+
+    // Optimized chunk processing with buffer reuse
+    private func processChunkOptimized(samplesPtr: UnsafePointer<Float>, chunk: BorrowedAudioChunk, model: MLModel) throws -> [VADSegment] {
+        // Get pooled buffer for this thread
+        let threadId = Thread.current.description
+        let bufferKey = "audio_buffer_\(threadId)"
+
+        // Get or create ANE-aligned buffer from pool
+        let audioArray = try memoryOptimizer.getPooledBuffer(
+            key: bufferKey,
+            shape: [1, 1, NSNumber(value: chunkSize)],
+            dataType: .float32
+        )
+
+        // Clear buffer first (important for reuse)
+        let ptr = audioArray.dataPointer.assumingMemoryBound(to: Float.self)
+        memset(ptr, 0, chunkSize * MemoryLayout<Float>.size)
+
+        // Borrow from the caller-owned waveform and only copy the current chunk
+        let copyCount = min(chunk.sampleCount, chunkSize)
+        if copyCount > 0 {
+            let sourcePtr = samplesPtr.advanced(by: chunk.startIndex)
+            vDSP_mmov(
+                sourcePtr,
+                ptr,
+                vDSP_Length(copyCount),
+                vDSP_Length(1),
+                vDSP_Length(1),
+                vDSP_Length(copyCount)
+            )
+        }
+
+        // Create zero-copy feature provider
+        let featureProvider = ZeroCopyDiarizerFeatureProvider(features: [
+            "audio": MLFeatureValue(multiArray: audioArray)
+        ])
+
+        // Configure prediction for ANE
+        let options = MLPredictionOptions()
+
+        // Use async prediction if available for better ANE scheduling
+        let output: MLFeatureProvider
+        if #available(macOS 14.0, iOS 17.0, *) {
+            // Prefetch to ANE
+            audioArray.prefetchToNeuralEngine()
+            // Use async for better scheduling
+            output = try model.prediction(from: featureProvider, options: options)
+        } else {
+            output = try model.prediction(from: featureProvider, options: options)
+        }
+
+        guard let segmentOutput = output.featureValue(for: "segments")?.multiArrayValue else {
+            return []
+        }
+
+        // Process segments with optimized memory access
+        return processSegmentsOptimized(segmentOutput, chunkOffset: chunk.chunkOffset)
     }
 
     private func processSegmentsOptimized(_ segmentOutput: MLMultiArray, chunkOffset: Double) -> [VADSegment] {
@@ -887,6 +1033,30 @@ public func vad_process_file(
     }
 
     // Allocate memory for doubles (start, end pairs)
+    let buffer = UnsafeMutablePointer<Double>.allocate(capacity: segments.count * 2)
+    for (i, seg) in segments.enumerated() {
+        buffer[i * 2] = seg.start
+        buffer[i * 2 + 1] = seg.end
+    }
+
+    return UnsafeMutableRawPointer(buffer)
+}
+
+@_cdecl("vad_process_samples")
+public func vad_process_samples(
+    _ processorPtr: UnsafeMutableRawPointer,
+    _ samplesPtr: UnsafePointer<Float>,
+    _ sampleCount: Int,
+    _ count: UnsafeMutablePointer<Int32>
+) -> UnsafeMutableRawPointer {
+    let processor = Unmanaged<VADProcessor>.fromOpaque(processorPtr).takeUnretainedValue()
+    let segments = processor.processAudioSamples(samplesPtr, sampleCount: sampleCount)
+    count.pointee = Int32(segments.count)
+
+    guard segments.count > 0 else {
+        return UnsafeMutableRawPointer(bitPattern: 1)!
+    }
+
     let buffer = UnsafeMutablePointer<Double>.allocate(capacity: segments.count * 2)
     for (i, seg) in segments.enumerated() {
         buffer[i * 2] = seg.start
