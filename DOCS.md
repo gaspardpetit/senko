@@ -14,7 +14,7 @@ diarizer = senko.Diarizer(device='auto', vad='auto', clustering='auto', warmup=T
     - `auto` automatically selects `coreml` if on macOS, if not, then `cuda`, if not, then `cpu`
 - `vad`: Voice Activity Detection model to use (`auto`, `pyannote`, `silero`)
     - `auto` automatically selects `pyannote` for `cuda` & `coreml`, `silero` for `cpu`
-    - `pyannote` uses Pyannote VAD (requires `cuda` for optimal performance)
+    - `pyannote` uses Senko's local segmentation-3.0 VAD backend (CUDA/CoreML)
     - `silero` uses Silero VAD (runs on CPU; not available on macOS)
 - `clustering`: Clustering location when `device` == `cuda` (`auto`, `gpu`, `cpu`)
     - Only applies to CUDA devices; non-CUDA devices always use CPU clustering

@@ -77,12 +77,12 @@ Senko is a heavily optimized and slightly modified version of the speaker diariz
 It consists of four stages: VAD (voice activity detection), Fbank feature extraction, speaker embeddings generation, and clustering (spectral or UMAP+HDBSCAN).
 
 The following modifications have been made:
-- VAD model has been swapped from FSMN-VAD to either Pyannote [segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) or [Silero VAD](https://github.com/snakers4/silero-vad)
+- VAD model has been swapped from FSMN-VAD to either Senko's local `pyannote` backend (powered by the bundled segmentation-3.0 assets) or [Silero VAD](https://github.com/snakers4/silero-vad)
 - Fbank feature extraction is done fully upfront, on the GPU using [kaldifeat](https://github.com/csukuangfj/kaldifeat) if on NVIDIA, and on the CPU using all cores otherwise. 
 - Batched inference of the CAM++ embedding model
 - Clustering when on NVIDIA (with a GPU of CUDA compute capability 7.0+) can be done on the GPU through [RAPIDS](https://docs.rapids.ai/api/cuml/stable/zero-code-change/)
 
-On Linux/WSL, both Pyannote segmentation-3.0 and CAM++ run using PyTorch, but on Mac, both models run through CoreML. The CAM++ CoreML conversion was done from scratch in this project (see [`tracing/coreml`](tracing/coreml)), but the segmentation-3.0 converted model and interfacing code is taken from the excellent [FluidAudio](https://github.com/FluidInference/FluidAudio) project by Fluid Inference.
+On Linux/WSL, Senko's local segmentation-3.0 backend and CAM++ run using PyTorch, but on Mac, both models run through CoreML. The CAM++ CoreML conversion was done from scratch in this project (see [`tracing/coreml`](tracing/coreml)), but the segmentation-3.0 converted model and interfacing code is taken from the excellent [FluidAudio](https://github.com/FluidInference/FluidAudio) project by Fluid Inference. No `pyannote.audio` package install is required at runtime.
 
 ## Showcase
 | Application | Description |
@@ -110,7 +110,7 @@ Generally, the pipeline should work for any language, as it relies on acoustic p
 <details>
 <summary>Are overlapping speaker segments detected correctly?</summary>
 <br>
-The current output will not have any overlapping speaker segments; i.e. only one speaker max is reported to be speaking at any given time. However, despite this, the current pipeline still performs great in determining who the dominant speaker is at any given time in chaotic audio with speakers talking over each other (example: casual podcasts). That said, detecting overlapping speaker segments is a planned feature thanks to the Pyannote segmentation-3.0 model (which we currently only use for VAD) supporting it.
+The current output will not have any overlapping speaker segments; i.e. only one speaker max is reported to be speaking at any given time. However, despite this, the current pipeline still performs great in determining who the dominant speaker is at any given time in chaotic audio with speakers talking over each other (example: casual podcasts). That said, detecting overlapping speaker segments is a planned feature thanks to the bundled segmentation-3.0 model (which we currently only use for VAD) supporting it.
 </details>
 <details>
 <summary>How fast is the pipeline on CPU (<code>cpu</code>)?</summary>
