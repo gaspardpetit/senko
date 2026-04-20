@@ -1,11 +1,11 @@
 from itertools import combinations
 
 import numpy as np
-import torch
-import torch.nn.functional as F
 
 
-def build_powerset_mapping(num_classes: int, max_set_size: int) -> torch.Tensor:
+def build_powerset_mapping(num_classes: int, max_set_size: int):
+    import torch
+
     rows = []
     for set_size in range(0, max_set_size + 1):
         for current_set in combinations(range(num_classes), set_size):
@@ -15,8 +15,10 @@ def build_powerset_mapping(num_classes: int, max_set_size: int) -> torch.Tensor:
             rows.append(row)
     return torch.stack(rows, dim=0)
 
+def powerset_logits_to_speech(batch_logits, mapping) -> np.ndarray:
+    import torch
+    import torch.nn.functional as F
 
-def powerset_logits_to_speech(batch_logits: torch.Tensor, mapping: torch.Tensor) -> np.ndarray:
     predicted = torch.argmax(batch_logits, dim=-1)
     one_hot = F.one_hot(predicted, num_classes=mapping.shape[0]).float()
     multilabel = torch.matmul(one_hot, mapping)

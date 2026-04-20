@@ -4,7 +4,6 @@ import numpy as np
 
 from ..vad_coreml import VADProcessorCoreML
 from .audio import load_audio_source
-from .checkpoint import build_model_from_checkpoint
 from .postprocess import aggregate_sliding_scores, build_powerset_mapping, powerset_logits_to_speech, scores_to_segments
 
 
@@ -19,6 +18,7 @@ class VADParameters:
 class LocalSegmentationVADCuda:
     def __init__(self, checkpoint_path, torch_device, batch_size: int = 32, parameters: VADParameters | None = None):
         import torch
+        from .checkpoint import build_model_from_checkpoint
 
         self.torch = torch
         self.parameters = parameters or VADParameters()
