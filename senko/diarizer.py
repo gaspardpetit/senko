@@ -94,7 +94,7 @@ class Diarizer:
             else:
                 from .vad_local_pyannote import LocalSegmentationVADCoreML
                 self.vad_backend = LocalSegmentationVADCoreML(
-                    lib_path=config.VAD_COREML_LIB_PATH,
+                    lib_path=config.get_vad_coreml_lib_path(),
                     model_path=str(self.model_paths.pyannote_segmentation_coreml_model_path),
                 )
 
@@ -150,7 +150,7 @@ class Diarizer:
         
         # Extract features on CPU using C++ lib
         if not getattr(self, 'use_gpu_fbank', False):
-            self.lib = ctypes.CDLL(config.FBANK_LIB_PATH)
+            self.lib = ctypes.CDLL(config.get_fbank_lib_path())
 
             class FbankFeatures(ctypes.Structure):
                 _fields_ = [

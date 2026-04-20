@@ -8,7 +8,6 @@ import numpy as np
 import soundfile as sf
 
 from senko import config
-from senko.vad_local_pyannote import LocalSegmentationVADCuda
 from senko.vad_local_pyannote.postprocess import build_powerset_mapping, scores_to_segments
 
 
@@ -69,6 +68,7 @@ class PostprocessTests(unittest.TestCase):
 class ChunkingTests(unittest.TestCase):
     def test_short_audio_is_padded_to_full_window(self):
         import torch
+        from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         backend = LocalSegmentationVADCuda.__new__(LocalSegmentationVADCuda)
         backend.torch = torch
@@ -85,6 +85,7 @@ class ChunkingTests(unittest.TestCase):
 
     def test_tail_chunk_is_anchored_to_end_for_non_aligned_length(self):
         import torch
+        from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         backend = LocalSegmentationVADCuda.__new__(LocalSegmentationVADCuda)
         backend.torch = torch
@@ -106,6 +107,7 @@ class ChunkingTests(unittest.TestCase):
 
     def test_exact_alignment_does_not_emit_duplicate_tail_chunk(self):
         import torch
+        from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         backend = LocalSegmentationVADCuda.__new__(LocalSegmentationVADCuda)
         backend.torch = torch
@@ -125,11 +127,13 @@ class LocalPyannoteCudaRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import torch
+        from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         if not torch.cuda.is_available():
             raise unittest.SkipTest("CUDA is required for local pyannote regression tests.")
 
         cls.torch = torch
+        cls.backend_cls = LocalSegmentationVADCuda
         cls.model_paths = config.resolve_model_paths(required_fields=config.RUNTIME_PYANNOTE_CUDA_MODEL_FIELDS)
         cls.local_backend = LocalSegmentationVADCuda(
             checkpoint_path=cls.model_paths.pyannote_segmentation_senko_model_path,
@@ -163,7 +167,7 @@ class LocalPyannoteCudaRegressionTests(unittest.TestCase):
             return real_import(name, globals, locals, fromlist, level)
 
         with patch("builtins.__import__", side_effect=guarded_import):
-            backend = LocalSegmentationVADCuda(
+            backend = self.backend_cls(
                 checkpoint_path=self.model_paths.pyannote_segmentation_senko_model_path,
                 torch_device=self.torch.device("cuda"),
             )

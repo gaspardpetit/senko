@@ -29,26 +29,34 @@ def _find_existing_path(root: Path, candidate_names: tuple[str, ...]) -> Path | 
     return None
 
 
+def get_fbank_lib_path() -> str:
+    if IS_DEV_MODE:
+        build_fbank_lib = _find_existing_path(BUILD_DIR, FBANK_LIB_FILENAMES)
+        if build_fbank_lib is None:
+            raise FileNotFoundError(
+                f"Could not find any of {FBANK_LIB_FILENAMES} in development build directory "
+                f"('{BUILD_DIR}'). Please run 'uv pip install -e .' successfully."
+            )
+        return str(build_fbank_lib)
+
+    return str(_package_fbank_lib)
+
+
+def get_vad_coreml_lib_path() -> str:
+    if IS_DEV_MODE:
+        return str(BUILD_DIR / 'libvad_coreml.dylib')
+    return str(PACKAGE_DIR / 'libvad_coreml.dylib')
+
+
 _package_fbank_lib = _find_existing_path(PACKAGE_DIR, FBANK_LIB_FILENAMES)
 IS_DEV_MODE = _package_fbank_lib is None
 
 if IS_DEV_MODE:
     project_root = Path(__file__).parent.parent
     BUILD_DIR = project_root / 'build'
-    build_fbank_lib = _find_existing_path(BUILD_DIR, FBANK_LIB_FILENAMES)
-    if build_fbank_lib is None:
-        raise FileNotFoundError(
-            f"Could not find any of {FBANK_LIB_FILENAMES} in development build directory "
-            f"('{BUILD_DIR}'). Please run 'uv pip install -e .' successfully."
-        )
-
     DEFAULT_MODELS_DIR = project_root / 'models'
-    FBANK_LIB_PATH = str(build_fbank_lib)
-    VAD_COREML_LIB_PATH = str(BUILD_DIR / 'libvad_coreml.dylib')
 else:
     DEFAULT_MODELS_DIR = PACKAGE_DIR / 'models'
-    FBANK_LIB_PATH = str(_package_fbank_lib)
-    VAD_COREML_LIB_PATH = str(PACKAGE_DIR / 'libvad_coreml.dylib')
 
 CLUSTER = PACKAGE_DIR / 'cluster'
 SPECTRAL_YAML = str(CLUSTER / 'conf' / 'spectral.yaml')
@@ -128,11 +136,11 @@ def _resolve_model_asset(configured_model_dir: Path | None, relative_path: Path)
     if configured_model_dir is not None:
         candidate = configured_model_dir / relative_path
         if candidate.exists():
-            return candidate
+            return candidate.resolve()
 
     fallback = DEFAULT_MODELS_DIR / relative_path
     if fallback.exists():
-        return fallback
+        return fallback.resolve()
 
     raise FileNotFoundError(
         f"Required Senko model asset '{relative_path.as_posix()}' was not found in "
