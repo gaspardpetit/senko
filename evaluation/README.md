@@ -73,6 +73,6 @@ python evaluate.py --dataset voxconverse
 # Evaluate on all datasets
 python evaluate.py --all-datasets
 
-# [--device, --vad, --clustering, --num-samples] options also available; see evaluate.py
+# [--device, --vad, --clustering, --model-dir, --num-samples] options also available; see evaluate.py
 ```
 Note: Datasets will be automatically downloaded from Hugging Face. If you run into rate limiting, it helps to add your Hugging Face token as an environment variable `export HF_TOKEN="..."`.

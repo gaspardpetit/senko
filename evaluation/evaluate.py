@@ -198,6 +198,12 @@ def main():
         help="Device for Senko processing (default: auto)"
     )
     parser.add_argument(
+        "--model-dir",
+        type=str,
+        default=None,
+        help="Optional custom model root. Senko resolves models here first and stores reusable computed artifacts under <model-dir>/cached."
+    )
+    parser.add_argument(
         "--vad",
         type=str,
         default="auto",
@@ -232,6 +238,7 @@ def main():
 
     print(f"\nInitializing Senko pipeline (device={args.device}, vad={args.vad}, clustering={args.clustering})...")
     pipeline_config = SenkoPipelineConfig(
+        model_dir=args.model_dir,
         device=args.device,
         vad=args.vad,
         clustering=args.clustering,
