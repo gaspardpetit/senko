@@ -40,6 +40,14 @@ def _synthetic_waveform(duration_seconds: float = 12.0, sample_rate: int = 16000
     return np.ascontiguousarray(np.clip(waveform, -1.0, 1.0), dtype=np.float32)
 
 
+def _require_torch():
+    try:
+        import torch
+    except ModuleNotFoundError as exc:
+        raise unittest.SkipTest(f"torch is unavailable: {exc}") from exc
+    return torch
+
+
 class PostprocessTests(unittest.TestCase):
     def test_no_speech_scores_return_empty_segments(self):
         scores = np.zeros(32, dtype=np.float32)
@@ -60,6 +68,7 @@ class PostprocessTests(unittest.TestCase):
         self.assertEqual(len(segments), 1)
 
     def test_overlap_powerset_class_counts_as_speech(self):
+        _require_torch()
         mapping = build_powerset_mapping(3, 2)
         self.assertEqual(mapping.shape, (7, 3))
         self.assertEqual(mapping[4].tolist(), [1.0, 1.0, 0.0])
@@ -67,7 +76,7 @@ class PostprocessTests(unittest.TestCase):
 
 class ChunkingTests(unittest.TestCase):
     def test_short_audio_is_padded_to_full_window(self):
-        import torch
+        torch = _require_torch()
         from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         backend = LocalSegmentationVADCuda.__new__(LocalSegmentationVADCuda)
@@ -84,7 +93,7 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual(batches[0][0, 0].tolist(), [0.0, 1.0, 2.0, 3.0, 0.0, 0.0])
 
     def test_tail_chunk_is_anchored_to_end_for_non_aligned_length(self):
-        import torch
+        torch = _require_torch()
         from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         backend = LocalSegmentationVADCuda.__new__(LocalSegmentationVADCuda)
@@ -106,7 +115,7 @@ class ChunkingTests(unittest.TestCase):
         self.assertEqual(tail[0, 0].tolist(), [9.0, 10.0, 11.0, 12.0, 13.0, 14.0])
 
     def test_exact_alignment_does_not_emit_duplicate_tail_chunk(self):
-        import torch
+        torch = _require_torch()
         from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         backend = LocalSegmentationVADCuda.__new__(LocalSegmentationVADCuda)
@@ -126,7 +135,7 @@ class ChunkingTests(unittest.TestCase):
 class LocalPyannoteCudaRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        import torch
+        torch = _require_torch()
         from senko.vad_local_pyannote import LocalSegmentationVADCuda
 
         if not torch.cuda.is_available():
