@@ -32,7 +32,7 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Install Senko
-        run: uv pip install --python python -e .
+        run: uv pip install --system -e .
 
       - name: Run tests
         run: python -m unittest discover -s tests -p "test_*.py"
@@ -57,7 +57,7 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Install build frontend
-        run: uv pip install --python python build
+        run: uv pip install --system build
 
       - name: Build source distribution
         run: python -m build --sdist
