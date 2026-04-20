@@ -1,16 +1,101 @@
 import os
-import senko
 import tempfile
-from pathlib import Path
 from typing import Any, Callable, Dict
-import numpy as np
+
+import senko
 import soundfile as sf
-from pyannote.core import Annotation, Segment
-from pydantic import Field
-from openbench.dataset import DiarizationSample
-from openbench.pipeline.base import Pipeline, PipelineType, register_pipeline
-from openbench.pipeline.diarization.common import DiarizationOutput, DiarizationPipelineConfig
-from openbench.pipeline_prediction import DiarizationAnnotation
+try:
+    from pydantic import Field
+except ModuleNotFoundError:
+    def Field(default=None, **kwargs):  # pragma: no cover - fallback for import-time compatibility
+        return default
+
+try:
+    from openbench.dataset import DiarizationSample
+    from openbench.pipeline.base import Pipeline, PipelineType, register_pipeline
+    from openbench.pipeline.diarization.common import DiarizationOutput, DiarizationPipelineConfig
+    from openbench.pipeline_prediction import DiarizationAnnotation
+
+    OPENBENCH_IMPORT_ERROR = None
+except ModuleNotFoundError as exc:
+    OPENBENCH_IMPORT_ERROR = exc
+
+    class DiarizationSample:  # pragma: no cover - fallback for import-time compatibility
+        waveform: Any
+        sample_rate: int
+
+    class DiarizationPipelineConfig:  # pragma: no cover - fallback for import-time compatibility
+        pass
+
+    class Pipeline:  # pragma: no cover - fallback for import-time compatibility
+        def __init__(self, config):
+            self.config = config
+
+    class PipelineType:  # pragma: no cover - fallback for import-time compatibility
+        DIARIZATION = "diarization"
+
+    def register_pipeline(cls):  # pragma: no cover - fallback for import-time compatibility
+        return cls
+
+    class DiarizationAnnotation(dict):  # pragma: no cover - fallback for import-time compatibility
+        pass
+
+    class DiarizationOutput:  # pragma: no cover - fallback for import-time compatibility
+        def __init__(self, prediction):
+            self.prediction = prediction
+
+
+def _segment_payload(segments):
+    return [
+        {
+            "start": segment["start"],
+            "end": segment["end"],
+            "speaker": segment["speaker"],
+        }
+        for segment in segments
+    ]
+
+
+def _build_diarization_annotation(annotation_cls, segments):
+    payload = _segment_payload(segments)
+
+    if isinstance(annotation_cls, type) and issubclass(annotation_cls, dict):
+        annotation = annotation_cls()
+        for segment in payload:
+            annotation[(segment["start"], segment["end"])] = segment["speaker"]
+        return annotation
+
+    if hasattr(annotation_cls, "from_segments"):
+        return annotation_cls.from_segments(payload)
+
+    if hasattr(annotation_cls, "model_validate"):
+        for candidate in (payload, {"segments": payload}, {"prediction": payload}):
+            try:
+                return annotation_cls.model_validate(candidate)
+            except Exception:
+                pass
+
+    for constructor_payload in ({"segments": payload}, {"prediction": payload}):
+        try:
+            return annotation_cls(**constructor_payload)
+        except TypeError:
+            pass
+
+    annotation = annotation_cls()
+    if hasattr(annotation, "segments") and isinstance(annotation.segments, list):
+        annotation.segments.extend(payload)
+        return annotation
+
+    if hasattr(annotation, "__setitem__"):
+        for segment in payload:
+            annotation[(segment["start"], segment["end"])] = segment["speaker"]
+        return annotation
+
+    raise TypeError(
+        f"Unsupported diarization annotation type: {annotation_cls!r}. "
+        "Could not populate it from Senko segments."
+    )
+
 
 class SenkoPipelineConfig(DiarizationPipelineConfig):
     model_dir: str | None = Field(
@@ -37,11 +122,11 @@ class SenkoPipelineConfig(DiarizationPipelineConfig):
         default=True,
         description="Suppress progress updates and all other output to stdout"
     )
-    # Override the base class field to fix the type
     num_worker_processes: int | None = Field(
         default=None,
         description="Number of worker processes to use for parallel processing"
     )
+
 
 @register_pipeline
 class SenkoPipeline(Pipeline):
@@ -49,11 +134,16 @@ class SenkoPipeline(Pipeline):
     pipeline_type = PipelineType.DIARIZATION
 
     def __init__(self, config: SenkoPipelineConfig):
+        if OPENBENCH_IMPORT_ERROR is not None:
+            raise ModuleNotFoundError(
+                "OpenBench is required to use evaluation.senko_pipeline. "
+                "Install the OpenBench evaluation dependencies first."
+            ) from OPENBENCH_IMPORT_ERROR
+
         super().__init__(config)
-        self.temp_files = []  # Track temp files for cleanup
+        self.temp_files = []
 
     def __del__(self):
-        # Clean up temporary files
         for temp_file in self.temp_files:
             try:
                 if os.path.exists(temp_file):
@@ -74,32 +164,16 @@ class SenkoPipeline(Pipeline):
         def call_pipeline(inputs: Dict[str, Any]) -> DiarizationAnnotation:
             wav_path = inputs["wav_path"]
             try:
-                # Run diarization
                 result = self.diarizer.diarize(wav_path, generate_colors=False)
-
-                # Handle case where no speakers are detected
                 if result is None:
-                    # Return empty annotation
-                    return DiarizationAnnotation()
+                    return _build_diarization_annotation(DiarizationAnnotation, [])
 
-                # Convert Senko output to Pyannote Annotation
-                annotation = DiarizationAnnotation()
-                segments = result["merged_segments"]
-                for segment in segments:
-                    start = segment["start"]
-                    end = segment["end"]
-                    speaker = segment["speaker"]
-                    seg = Segment(start, end)
-                    annotation[seg] = speaker
-
-                return annotation
+                return _build_diarization_annotation(DiarizationAnnotation, result["merged_segments"])
 
             except senko.AudioFormatError as e:
-                # This shouldn't happen as we ensure correct format in parse_input but handle it just in case
                 raise ValueError(f"Audio format error: {e}")
 
             finally:
-                # Clean up temp file immediately after use
                 if wav_path in self.temp_files:
                     try:
                         os.remove(wav_path)
@@ -110,17 +184,13 @@ class SenkoPipeline(Pipeline):
         return call_pipeline
 
     def parse_input(self, input_sample: DiarizationSample) -> Dict[str, Any]:
-        # Parse DiarizationSample to Senko's expected input format.
-        # Senko requires file paths as input (not numpy arrays), so we create a temporary WAV file from the audio sample.
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
             tmp_path = tmp_file.name
-            self.temp_files.append(tmp_path)  # Track for cleanup
+            self.temp_files.append(tmp_path)
 
-            # Ensure audio is 16kHz mono 16-bit WAV as Senko requires
             waveform = input_sample.waveform
             sample_rate = input_sample.sample_rate
 
-            # Resample if needed (Senko requires exactly 16kHz)
             if sample_rate != 16000:
                 import librosa
                 waveform = librosa.resample(
@@ -130,12 +200,9 @@ class SenkoPipeline(Pipeline):
                 )
                 sample_rate = 16000
 
-            # Save as 16-bit WAV (Senko's required format)
-            sf.write(tmp_path, waveform, sample_rate, subtype='PCM_16')
+            sf.write(tmp_path, waveform, sample_rate, subtype="PCM_16")
 
         return {"wav_path": tmp_path}
 
     def parse_output(self, output: DiarizationAnnotation) -> DiarizationOutput:
-        """Parse Senko output to DiarizationOutput format."""
-        # Note: prediction_time will be automatically set by the base Pipeline class based on the time taken by the pipeline call
         return DiarizationOutput(prediction=output)

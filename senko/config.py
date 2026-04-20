@@ -10,30 +10,44 @@ from importlib.metadata import PackageNotFoundError, version
 DARWIN = platform.system() == 'Darwin'
 WINDOWS = platform.system() == 'Windows'
 if DARWIN:
-    FBANK_LIB_FILENAME = 'libfbank_extractor.dylib'
+    FBANK_LIB_FILENAMES = ('libfbank_extractor.dylib',)
 elif WINDOWS:
-    FBANK_LIB_FILENAME = 'fbank_extractor.pyd'
+    FBANK_LIB_FILENAMES = ('fbank_extractor.pyd', 'libfbank_extractor.pyd')
 else:
-    FBANK_LIB_FILENAME = 'libfbank_extractor.so'
+    FBANK_LIB_FILENAMES = ('libfbank_extractor.so',)
+
+FBANK_LIB_FILENAME = FBANK_LIB_FILENAMES[0]
 
 PACKAGE_DIR = Path(str(importlib.resources.files('senko')))
-IS_DEV_MODE = not (PACKAGE_DIR / FBANK_LIB_FILENAME).exists()
+
+
+def _find_existing_path(root: Path, candidate_names: tuple[str, ...]) -> Path | None:
+    for candidate_name in candidate_names:
+        candidate = root / candidate_name
+        if candidate.exists():
+            return candidate
+    return None
+
+
+_package_fbank_lib = _find_existing_path(PACKAGE_DIR, FBANK_LIB_FILENAMES)
+IS_DEV_MODE = _package_fbank_lib is None
 
 if IS_DEV_MODE:
     project_root = Path(__file__).parent.parent
     BUILD_DIR = project_root / 'build'
-    if not (BUILD_DIR / FBANK_LIB_FILENAME).exists():
+    build_fbank_lib = _find_existing_path(BUILD_DIR, FBANK_LIB_FILENAMES)
+    if build_fbank_lib is None:
         raise FileNotFoundError(
-            f"Could not find '{FBANK_LIB_FILENAME}' in development build directory "
+            f"Could not find any of {FBANK_LIB_FILENAMES} in development build directory "
             f"('{BUILD_DIR}'). Please run 'uv pip install -e .' successfully."
         )
 
     DEFAULT_MODELS_DIR = project_root / 'models'
-    FBANK_LIB_PATH = str(BUILD_DIR / FBANK_LIB_FILENAME)
+    FBANK_LIB_PATH = str(build_fbank_lib)
     VAD_COREML_LIB_PATH = str(BUILD_DIR / 'libvad_coreml.dylib')
 else:
     DEFAULT_MODELS_DIR = PACKAGE_DIR / 'models'
-    FBANK_LIB_PATH = str(PACKAGE_DIR / FBANK_LIB_FILENAME)
+    FBANK_LIB_PATH = str(_package_fbank_lib)
     VAD_COREML_LIB_PATH = str(PACKAGE_DIR / 'libvad_coreml.dylib')
 
 CLUSTER = PACKAGE_DIR / 'cluster'
@@ -51,23 +65,37 @@ COREML_EMBEDDINGS_CACHE_RELATIVE_PATH = Path('coreml') / 'camplusplus_batch16.ml
 COREML_EMBEDDINGS_CACHE_METADATA_NAME = 'metadata.json'
 
 MODEL_RELATIVE_PATHS = {
-    'pyannote_segmentation_pt_model_path': Path('pyannote_segmentation_3.0') / 'pytorch_model.bin',
+    'pyannote_segmentation_senko_model_path': Path('pyannote_segmentation_3.0') / 'senko_vad.pt',
     'pyannote_segmentation_coreml_model_path': Path('pyannote_segmentation.mlmodelc'),
     'embeddings_jit_cuda_model_path': Path('camplusplus_traced_cuda_optimized.pt'),
     'embeddings_pt_model_path': Path('speech_campplus_sv_zh_en_16k-common_advanced') / 'campplus_cn_en_common.pt',
     'embeddings_coreml_path': Path('camplusplus_batch16.mlpackage'),
 }
 
+PYANNOTE_VAD_MODEL_FIELDS = (
+    'pyannote_segmentation_senko_model_path',
+    'pyannote_segmentation_coreml_model_path',
+)
+
+RUNTIME_PYANNOTE_CUDA_MODEL_FIELDS = ('pyannote_segmentation_senko_model_path',)
+RUNTIME_PYANNOTE_COREML_MODEL_FIELDS = ('pyannote_segmentation_coreml_model_path',)
+
+EMBEDDINGS_MODEL_FIELDS = (
+    'embeddings_jit_cuda_model_path',
+    'embeddings_pt_model_path',
+    'embeddings_coreml_path',
+)
+
 
 @dataclass(frozen=True)
 class ModelPaths:
     configured_model_dir: Path | None
     default_model_dir: Path
-    pyannote_segmentation_pt_model_path: Path
-    pyannote_segmentation_coreml_model_path: Path
-    embeddings_jit_cuda_model_path: Path
-    embeddings_pt_model_path: Path
-    embeddings_coreml_path: Path
+    pyannote_segmentation_senko_model_path: Path | None
+    pyannote_segmentation_coreml_model_path: Path | None
+    embeddings_jit_cuda_model_path: Path | None
+    embeddings_pt_model_path: Path | None
+    embeddings_coreml_path: Path | None
 
     @property
     def cache_base_dir(self) -> Path:
@@ -113,13 +141,22 @@ def _resolve_model_asset(configured_model_dir: Path | None, relative_path: Path)
     )
 
 
-def resolve_model_paths(model_dir=None) -> ModelPaths:
+def resolve_model_paths(model_dir=None, required_fields=None) -> ModelPaths:
     configured_model_dir = resolve_configured_model_dir(model_dir)
 
-    resolved = {
-        field_name: _resolve_model_asset(configured_model_dir, relative_path)
-        for field_name, relative_path in MODEL_RELATIVE_PATHS.items()
-    }
+    if required_fields is None:
+        required_fields = tuple(MODEL_RELATIVE_PATHS.keys())
+
+    unknown_fields = set(required_fields) - set(MODEL_RELATIVE_PATHS.keys())
+    if unknown_fields:
+        raise ValueError(f"Unknown Senko model fields requested: {sorted(unknown_fields)}")
+
+    resolved = {}
+    for field_name, relative_path in MODEL_RELATIVE_PATHS.items():
+        if field_name in required_fields:
+            resolved[field_name] = _resolve_model_asset(configured_model_dir, relative_path)
+        else:
+            resolved[field_name] = None
 
     return ModelPaths(
         configured_model_dir=configured_model_dir,

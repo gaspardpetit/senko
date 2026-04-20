@@ -1,6 +1,7 @@
 [build-system]
 requires = ["scikit-build-core"]
-build-backend = "scikit_build_core.build"
+build-backend = "build_backend"
+backend-path = ["."]
 
 [project]
 name = "senko"
@@ -60,26 +61,28 @@ dependencies = [
     "psutil",
     "colour-science",
     "silero-vad; sys_platform != 'darwin'",
-    "torch==2.8.0; sys_platform != 'darwin'",
+    "torch>=2.8,<3; sys_platform != 'darwin'",
     "coremltools; sys_platform == 'darwin'"
 ]
 
 [project.optional-dependencies]
 # CUDA 12 capable driver + CUDA compute capability < 7.5
 nvidia-old = [
-    "torch==2.8.0",
-    "torchaudio==2.8.0",
-    "torchvision==0.23.0",
-    "pyannote-audio==3.4.0",
+    "torch>=2.8,<3",
+    "torchaudio>=2.8,<3",
+    "torchvision>=0.23,<1",
+    "asteroid-filterbanks",
+    "einops",
     "kaldifeat"
 ]
 
 # CUDA 12 capable driver + CUDA compute capability >= 7.5
 nvidia = [
-    "torch==2.8.0",
-    "torchaudio==2.8.0",
-    "torchvision==0.23.0",
-    "pyannote-audio==3.4.0",
+    "torch>=2.8,<3",
+    "torchaudio>=2.8,<3",
+    "torchvision>=0.23,<1",
+    "asteroid-filterbanks",
+    "einops",
     "kaldifeat",
     "cuml-cu12",
     "cudf-cu12",
@@ -87,18 +90,20 @@ nvidia = [
 
 # Same as nvidia, without RAPIDS and kaldifeat
 nvidia-windows = [
-    "torch==2.8.0",
-    "torchaudio==2.8.0",
-    "torchvision==0.23.0",
-    "pyannote-audio==3.4.0",
+    "torch>=2.8,<3",
+    "torchaudio>=2.8,<3",
+    "torchvision>=0.23,<1",
+    "asteroid-filterbanks",
+    "einops",
 ]
 
 # Same as nvidia-old, without kaldifeat
 nvidia-old-windows = [
-    "torch==2.8.0",
-    "torchaudio==2.8.0",
-    "torchvision==0.23.0",
-    "pyannote-audio==3.4.0"
+    "torch>=2.8,<3",
+    "torchaudio>=2.8,<3",
+    "torchvision>=0.23,<1",
+    "asteroid-filterbanks",
+    "einops"
 ]
 
 
@@ -129,6 +134,12 @@ CMAKE_CXX_STANDARD_REQUIRED = "ON"
 [[tool.uv.index]]
 name = "pytorch-cu129"
 url = "https://download.pytorch.org/whl/cu129"
+explicit = true
+
+# PyTorch CUDA 12.8
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 # PyTorch CUDA 12.6
@@ -163,23 +174,24 @@ conflicts = [
 
 [tool.uv.sources]
 # Override torch/torchaudio for:
-#   nvidia + nvidia-windows -> use CUDA 12.9 torch
+#   nvidia -> use CUDA 12.9 torch
+#   nvidia-windows -> use CUDA 12.8 torch
 #   nvidia-old + nvidia-old-windows -> use CUDA 12.6 torch
 torch = [
     { index = "pytorch-cu129", extra = "nvidia" },
-    { index = "pytorch-cu129", extra = "nvidia-windows" },
+    { index = "pytorch-cu128", extra = "nvidia-windows" },
     { index = "pytorch-cu126", extra = "nvidia-old" },
     { index = "pytorch-cu126", extra = "nvidia-old-windows" },
 ]
 torchaudio = [
     { index = "pytorch-cu129", extra = "nvidia" },
-    { index = "pytorch-cu129", extra = "nvidia-windows" },
+    { index = "pytorch-cu128", extra = "nvidia-windows" },
     { index = "pytorch-cu126", extra = "nvidia-old" },
     { index = "pytorch-cu126", extra = "nvidia-old-windows" },
 ]
 torchvision = [
     { index = "pytorch-cu129", extra = "nvidia" },
-    { index = "pytorch-cu129", extra = "nvidia-windows" },
+    { index = "pytorch-cu128", extra = "nvidia-windows" },
     { index = "pytorch-cu126", extra = "nvidia-old" },
     { index = "pytorch-cu126", extra = "nvidia-old-windows" },
 ]

@@ -58,14 +58,14 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(model_paths.embeddings_jit_cuda_model_path, env_asset.resolve())
 
     def test_missing_custom_asset_falls_back_to_default(self):
-        missing_relative_path = config.MODEL_RELATIVE_PATHS['pyannote_segmentation_pt_model_path']
+        missing_relative_path = config.MODEL_RELATIVE_PATHS['pyannote_segmentation_senko_model_path']
         (self.custom_dir / missing_relative_path).unlink()
 
         with patch.object(config, 'DEFAULT_MODELS_DIR', self.default_dir):
             model_paths = config.resolve_model_paths(self.custom_dir)
 
         self.assertEqual(
-            model_paths.pyannote_segmentation_pt_model_path,
+            model_paths.pyannote_segmentation_senko_model_path,
             (self.default_dir / missing_relative_path).resolve(),
         )
 
@@ -81,6 +81,23 @@ class ConfigTests(unittest.TestCase):
         with patch.object(config, 'DEFAULT_MODELS_DIR', self.default_dir):
             with self.assertRaises(FileNotFoundError):
                 config.resolve_model_paths(self.custom_dir)
+
+    def test_lazy_model_resolution_skips_unrequested_pyannote_assets(self):
+        missing_relative_path = config.MODEL_RELATIVE_PATHS['pyannote_segmentation_senko_model_path']
+        (self.default_dir / missing_relative_path).unlink()
+        (self.custom_dir / missing_relative_path).unlink()
+
+        with patch.object(config, 'DEFAULT_MODELS_DIR', self.default_dir):
+            model_paths = config.resolve_model_paths(
+                self.custom_dir,
+                required_fields=config.EMBEDDINGS_MODEL_FIELDS,
+            )
+
+        self.assertIsNone(model_paths.pyannote_segmentation_senko_model_path)
+        self.assertEqual(
+            model_paths.embeddings_pt_model_path,
+            (self.custom_dir / config.MODEL_RELATIVE_PATHS['embeddings_pt_model_path']).resolve(),
+        )
 
     def test_coreml_cache_metadata_invalidates_on_source_change(self):
         with patch.object(config, 'DEFAULT_MODELS_DIR', self.default_dir):

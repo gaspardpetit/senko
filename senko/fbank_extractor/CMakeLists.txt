@@ -32,7 +32,10 @@ endif()
 if(APPLE)
     set_target_properties(fbank_extractor PROPERTIES SUFFIX ".dylib")
 elseif(WIN32)
-    set_target_properties(fbank_extractor PROPERTIES SUFFIX ".pyd")
+    set_target_properties(fbank_extractor PROPERTIES
+        PREFIX ""
+        SUFFIX ".pyd"
+    )
 else()
     set_target_properties(fbank_extractor PROPERTIES SUFFIX ".so")
 endif()

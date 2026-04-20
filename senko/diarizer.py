@@ -8,7 +8,6 @@ import wave
 import ctypes
 import psutil
 import shutil
-import warnings
 import numpy as np
 from termcolor import colored
 
@@ -38,7 +37,6 @@ class Diarizer:
     def __init__(self, device='auto', vad='auto', clustering='auto', warmup=True, quiet=True, mer_cos=None, model_dir=None):
 
         self.quiet = quiet
-        self.model_paths = config.resolve_model_paths(model_dir)
 
         ############
         ## Device ##
@@ -67,47 +65,41 @@ class Diarizer:
         # Determine VAD model type based on parameter or auto-selection
         self.vad_model_type = ('pyannote' if self.device in ['cuda', 'coreml'] else 'silero') if vad == 'auto' else vad.lower()
 
-        # If pyannote, check if it's actually available
-        if self.vad_model_type == 'pyannote' and self.device != 'coreml':
-            try:
-                import pyannote.audio
-            except ModuleNotFoundError:
-                self.vad_model_type = 'silero'
+        if self.vad_model_type == 'pyannote' and self.device not in ['cuda', 'coreml']:
+            raise ValueError("Pyannote VAD is only available on CUDA and CoreML. Use silero on CPU.")
+
+        required_model_fields = list(config.EMBEDDINGS_MODEL_FIELDS)
+        if self.vad_model_type == 'pyannote':
+            if self.device == 'coreml':
+                required_model_fields.extend(config.RUNTIME_PYANNOTE_COREML_MODEL_FIELDS)
+            else:
+                required_model_fields.extend(config.RUNTIME_PYANNOTE_CUDA_MODEL_FIELDS)
+
+        self.model_paths = config.resolve_model_paths(model_dir, required_fields=required_model_fields)
 
         # Pyannote VAD
         if self.vad_model_type == 'pyannote':
             # CUDA
             if self.device == 'cuda':
                 try:
-                    from pyannote.audio.utils.reproducibility import ReproducibilityWarning
-                    warnings.filterwarnings("ignore", category=ReproducibilityWarning)
-                except ImportError:
-                    warnings.filterwarnings("ignore", message=".*TensorFloat-32.*", category=UserWarning)
-
-                from pyannote.audio.pipelines import VoiceActivityDetection
-                from pyannote.audio import Model
-
-                # Allow-list needed classes for safe weights-only loading on PyTorch 2.6+
-                from pyannote.audio.core.task import Specifications, Problem, Resolution
-                from pyannote.audio.models.segmentation import PyanNet
-                with torch.serialization.safe_globals([torch.torch_version.TorchVersion, Specifications, Problem, Resolution, PyanNet]):
-                    model = Model.from_pretrained(str(self.model_paths.pyannote_segmentation_pt_model_path), map_location=self.torch_device)
-                self.vad_pipeline_pyannote_cuda = VoiceActivityDetection(segmentation=model)
-                self.vad_pipeline_pyannote_cuda.instantiate({
-                    "min_duration_on": 0.25,  # Remove speech regions shorter than 250ms
-                    "min_duration_off": 0.1   # Fill non-speech regions shorter than 100ms
-                })
-                self.vad_pipeline_pyannote_cuda.to(self.torch_device)
+                    from .vad_local_pyannote import LocalSegmentationVADCuda
+                except ModuleNotFoundError:
+                    self.vad_model_type = 'silero'
+                else:
+                    self.vad_backend = LocalSegmentationVADCuda(
+                        checkpoint_path=self.model_paths.pyannote_segmentation_senko_model_path,
+                        torch_device=self.torch_device,
+                    )
             # CoreML
             else:
-                from .vad_coreml import VADProcessorCoreML
-                self.vad_processor_pyannote_coreml = VADProcessorCoreML(
+                from .vad_local_pyannote import LocalSegmentationVADCoreML
+                self.vad_backend = LocalSegmentationVADCoreML(
                     lib_path=config.VAD_COREML_LIB_PATH,
-                    model_path=str(self.model_paths.pyannote_segmentation_coreml_model_path)
+                    model_path=str(self.model_paths.pyannote_segmentation_coreml_model_path),
                 )
 
         # Silero VAD
-        else:
+        if self.vad_model_type == 'silero':
             from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
             self.vad_model_silero = load_silero_vad()
             self.read_audio_silero = read_audio
@@ -531,19 +523,9 @@ class Diarizer:
     @time_method('vad_time', 'Voice activity detection')
     def _perform_vad(self, audio_source):
         if self.vad_model_type == 'pyannote':
-            # CUDA
             if self.device == 'cuda':
                 set_fp32_precision('ieee')
-                if isinstance(audio_source, np.ndarray):
-                    waveform = torch.from_numpy(audio_source).unsqueeze(0)
-                    vad_input = {"waveform": waveform, "sample_rate": 16000}
-                else:
-                    vad_input = audio_source
-                vad_result = self.vad_pipeline_pyannote_cuda(vad_input)
-                segments = [(segment.start, segment.end) for segment in vad_result.get_timeline()]
-            # CoreML
-            else:
-                segments = self.vad_processor_pyannote_coreml.process_audio(audio_source)
+            segments = self.vad_backend.process(audio_source)
         # Silero
         else:
             self._set_torch_num_threads(1)  # silero vad is single threaded
