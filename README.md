@@ -15,7 +15,7 @@ Senko powers the [Zanshin](https://zanshin.sh) media player.
 ```python
 import senko
 
-diarizer = senko.Diarizer(device='auto', warmup=True, quiet=False)
+diarizer = senko.Diarizer(device='auto', warmup=True, quiet=False, model_dir=None)
 
 wav_path = 'audio.wav' # 16kHz mono 16-bit wav
 result = diarizer.diarize(wav_path, generate_colors=False)
@@ -26,6 +26,21 @@ senko.save_rttm(result["merged_segments"], wav_path, 'audio_diarized.rttm')
 See [`examples/diarize.py`](examples/diarize.py) for an interactive script, and also read [`DOCS.md`](DOCS.md)
 
 Senko can also be used in a notebook, like [Google Colab](https://colab.research.google.com/drive/12WBChh5cdw-RKRStr5hlFgQLPy7R950o?usp=sharing) and [Modal Notebooks](https://modal.com/notebooks/mhamzaqayyum/main/nb-ioITGZf4CRHhpO1ftYAGXr).
+
+## Model Directory
+Senko resolves each required source model with the following precedence:
+- Explicit `model_dir=` argument or script `--model-dir` flag
+- `SENKO_MODEL_DIR`
+- Bundled default model directory
+
+If a model is missing from the configured model directory, Senko falls back to the bundled copy for that specific asset.
+
+On macOS, Senko also stores reusable compiled CAM++ CoreML artifacts under `<model_dir>/cached`. That cache directory is disposable and can be deleted safely if it becomes stale or you want to reclaim disk space.
+
+```bash
+export SENKO_MODEL_DIR=/path/to/models
+python examples/diarize.py --model-dir /path/to/override
+```
 
 ## Installation
 The following instructions are for Linux, macOS, and WSL. For Windows, see [`WINDOWS.md`](WINDOWS.md).
@@ -129,6 +144,8 @@ If you run into Numba related errors after upgrading/downgrading the `numba` pac
 rm -rf ~/.cache/senko
 ```
 Such errors may also appear if you have [Zanshin](https://github.com/narcotic-sh/zanshin) installed, with different package versions installed in its Python environment compared to the development venv that you're using for Senko.
+
+If you are using a custom model directory and want to clear reusable CoreML artifacts, delete the `<model_dir>/cached` directory. Senko will recreate it automatically on the next run if needed.
 
 ## Community & Support
 Join the [Discord](https://discord.gg/Nf7m5Ftk3c) server to ask questions, suggest features, talk about Senko and Zanshin development etc.

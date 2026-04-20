@@ -13,6 +13,10 @@ from openbench.pipeline.diarization.common import DiarizationOutput, Diarization
 from openbench.pipeline_prediction import DiarizationAnnotation
 
 class SenkoPipelineConfig(DiarizationPipelineConfig):
+    model_dir: str | None = Field(
+        default=None,
+        description="Optional custom model root. Senko resolves models from here first, then falls back to bundled models."
+    )
     device: str = Field(
         default="auto",
         description="Device to use for VAD & embeddings stage (auto, cuda, coreml, cpu)"
@@ -59,6 +63,7 @@ class SenkoPipeline(Pipeline):
 
     def build_pipeline(self) -> Callable[[Dict[str, Any]], DiarizationAnnotation]:
         self.diarizer = senko.Diarizer(
+            model_dir=self.config.model_dir,
             device=self.config.device,
             vad=self.config.vad,
             clustering=self.config.clustering,

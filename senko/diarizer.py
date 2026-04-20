@@ -7,6 +7,7 @@ import time
 import wave
 import ctypes
 import psutil
+import shutil
 import warnings
 import numpy as np
 from termcolor import colored
@@ -34,9 +35,10 @@ class AudioFormatError(Exception):
     pass
 
 class Diarizer:
-    def __init__(self, device='auto', vad='auto', clustering='auto', warmup=True, quiet=True, mer_cos=None):
+    def __init__(self, device='auto', vad='auto', clustering='auto', warmup=True, quiet=True, mer_cos=None, model_dir=None):
 
         self.quiet = quiet
+        self.model_paths = config.resolve_model_paths(model_dir)
 
         ############
         ## Device ##
@@ -89,7 +91,7 @@ class Diarizer:
                 from pyannote.audio.core.task import Specifications, Problem, Resolution
                 from pyannote.audio.models.segmentation import PyanNet
                 with torch.serialization.safe_globals([torch.torch_version.TorchVersion, Specifications, Problem, Resolution, PyanNet]):
-                    model = Model.from_pretrained(config.PYANNOTE_SEGMENTATION_PT_MODEL_PATH, map_location=self.torch_device)
+                    model = Model.from_pretrained(str(self.model_paths.pyannote_segmentation_pt_model_path), map_location=self.torch_device)
                 self.vad_pipeline_pyannote_cuda = VoiceActivityDetection(segmentation=model)
                 self.vad_pipeline_pyannote_cuda.instantiate({
                     "min_duration_on": 0.25,  # Remove speech regions shorter than 250ms
@@ -101,7 +103,7 @@ class Diarizer:
                 from .vad_coreml import VADProcessorCoreML
                 self.vad_processor_pyannote_coreml = VADProcessorCoreML(
                     lib_path=config.VAD_COREML_LIB_PATH,
-                    model_path=config.PYANNOTE_SEGMENTATION_COREML_MODEL_PATH
+                    model_path=str(self.model_paths.pyannote_segmentation_coreml_model_path)
                 )
 
         # Silero VAD
@@ -196,19 +198,18 @@ class Diarizer:
             # CoreML
             if self.device == 'coreml':
                 with suppress_stdout_stderr():
-                    import coremltools as ct
-                    self.embeddings_model = ct.models.MLModel(config.EMBEDDINGS_COREML_PATH)
+                    self.embeddings_model = self._load_coreml_embeddings_model()
                     self.coreml_fixed_frames = 150
                     self.coreml_batch_size = 16
             # CUDA
             elif self.device == 'cuda':
-                self.embeddings_model = torch.jit.load(config.EMBEDDINGS_JIT_CUDA_MODEL_PATH, map_location=self.torch_device)
+                self.embeddings_model = torch.jit.load(str(self.model_paths.embeddings_jit_cuda_model_path), map_location=self.torch_device)
                 self.embeddings_model.eval()
             # CPU
             else:
                 from .camplusplus import CAMPPlus
                 self.embeddings_model = CAMPPlus(feat_dim=80, embedding_size=192)
-                self.embeddings_model.load_state_dict(torch.load(config.EMBEDDINGS_PT_MODEL_PATH, map_location=self.torch_device, weights_only=True))
+                self.embeddings_model.load_state_dict(torch.load(str(self.model_paths.embeddings_pt_model_path), map_location=self.torch_device, weights_only=True))
                 self.embeddings_model.eval()
                 self.embeddings_model.to(self.torch_device)
 
@@ -292,6 +293,54 @@ class Diarizer:
     def __del__(self):
         if hasattr(self, 'fbank_extractor') and self.fbank_extractor:
             self.lib.destroy_fbank_extractor(self.fbank_extractor)
+
+    def _load_coreml_embeddings_model(self):
+        import coremltools as ct
+
+        coremltools_version = getattr(ct, '__version__', 'unknown')
+        cached_model = self._try_load_coreml_embeddings_cache(ct, coremltools_version)
+        if cached_model is not None:
+            return cached_model
+
+        source_model = ct.models.MLModel(str(self.model_paths.embeddings_coreml_path))
+        self._try_persist_coreml_embeddings_cache(source_model, coremltools_version)
+        return source_model
+
+    def _try_load_coreml_embeddings_cache(self, ct, coremltools_version):
+        compiled_model_dir = config.get_coreml_embeddings_cache_dir(self.model_paths)
+        if not config.is_coreml_embeddings_cache_valid(self.model_paths, coremltools_version):
+            return None
+
+        compiled_model_cls = getattr(ct.models, 'CompiledMLModel', None)
+        if compiled_model_cls is None:
+            return None
+
+        try:
+            return compiled_model_cls(str(compiled_model_dir))
+        except Exception:
+            config.reset_coreml_embeddings_cache(self.model_paths)
+            return None
+
+    def _try_persist_coreml_embeddings_cache(self, source_model, coremltools_version):
+        cache_parent = config.get_coreml_embeddings_cache_dir(self.model_paths).parent
+        if not config.ensure_writable_directory(cache_parent):
+            return
+
+        compiled_model_dir = config.get_coreml_embeddings_cache_dir(self.model_paths)
+        get_compiled_model_path = getattr(source_model, 'get_compiled_model_path', None)
+        if get_compiled_model_path is None:
+            return
+
+        temp_compiled_model_dir = get_compiled_model_path()
+        if not temp_compiled_model_dir:
+            return
+
+        try:
+            config.reset_coreml_embeddings_cache(self.model_paths)
+            shutil.copytree(temp_compiled_model_dir, compiled_model_dir)
+            config.update_coreml_embeddings_cache_metadata(self.model_paths, coremltools_version)
+        except Exception:
+            config.reset_coreml_embeddings_cache(self.model_paths)
 
     def diarize(self, wav_path, accurate=None, generate_colors=False):
         self._timing_stats = {}

@@ -3,8 +3,13 @@
 ### `Diarizer`
 ```python
 import senko
-diarizer = senko.Diarizer(device='auto', vad='auto', clustering='auto', warmup=True, quiet=True, mer_cos=None)
+diarizer = senko.Diarizer(device='auto', vad='auto', clustering='auto', warmup=True, quiet=True, mer_cos=None, model_dir=None)
 ```
+- `model_dir`: Optional custom model root
+    - Senko resolves each required source model from `model_dir` first, then falls back to the bundled copy for any missing asset
+    - If `model_dir` is `None`, Senko checks the `SENKO_MODEL_DIR` environment variable before using bundled defaults
+    - On macOS, reusable compiled CAM++ CoreML artifacts are stored under `<model_dir>/cached` when that directory is writable
+    - `<model_dir>/cached` is disposable and can be deleted safely
 - `device`: Device to use for VAD & embeddings stage (`auto`, `cuda`, `coreml`, `cpu`)
     - `auto` automatically selects `coreml` if on macOS, if not, then `cuda`, if not, then `cpu`
 - `vad`: Voice Activity Detection model to use (`auto`, `pyannote`, `silero`)

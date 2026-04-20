@@ -1,5 +1,5 @@
 # Example Senko usage script. Run like so:
-# python diarize.py --device cuda|coreml|cpu
+# python diarize.py --device cuda|coreml|cpu [--model-dir /path/to/models]
 # Diarization output (cleaned/merged, not raw) along with generated speaker color sets will be saved in ./results
 
 import os
@@ -14,9 +14,14 @@ if __name__ == '__main__':
                        choices=['auto', 'cuda', 'coreml', 'cpu'],
                        default='auto',
                        help='Torch device to use for processing (default: auto)')
+    parser.add_argument(
+        '--model-dir',
+        default=None,
+        help='Optional custom model root. Senko resolves models here first and stores reusable computed artifacts under <model-dir>/cached.'
+    )
     args = parser.parse_args()
 
-    diarizer = senko.Diarizer(device=args.device, warmup=True, quiet=False)
+    diarizer = senko.Diarizer(device=args.device, warmup=True, quiet=False, model_dir=args.model_dir)
     print("Diarizer warmed up and ready!\n")
 
     while True:
