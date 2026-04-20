@@ -140,6 +140,9 @@ build = "cp311-*"
 skip = "*-musllinux*"
 test-command = "python {project}/scripts/packaging_smoke.py"
 
+[tool.cibuildwheel.macos]
+environment = { MACOSX_DEPLOYMENT_TARGET = "14.0" }
+
 # PyTorch CUDA 12.9
 [[tool.uv.index]]
 name = "pytorch-cu129"
