@@ -36,9 +36,14 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Education",
-    "Operating System :: OS Independent",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: C++",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Information Analysis",
@@ -129,6 +134,11 @@ mode = "redirect"                           # creates a .pth file pointing to se
 [tool.scikit-build.cmake.define]
 CMAKE_CXX_STANDARD = "20"
 CMAKE_CXX_STANDARD_REQUIRED = "ON"
+
+[tool.cibuildwheel]
+build = "cp311-*"
+skip = "*-musllinux*"
+test-command = "python {project}/scripts/packaging_smoke.py"
 
 # PyTorch CUDA 12.9
 [[tool.uv.index]]

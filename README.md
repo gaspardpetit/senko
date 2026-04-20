@@ -57,15 +57,23 @@ source .venv/bin/activate
 Then install Senko
 ```bash
 # For NVIDIA GPUs with CUDA compute capability >= 7.5 (~GTX 16 series and newer)
-uv pip install "git+https://github.com/narcotic-sh/senko.git[nvidia]"
+uv pip install "senko[nvidia]"
 
 # For NVIDIA GPUs with CUDA compute capability < 7.5 (~GTX 10 series and older)
-uv pip install "git+https://github.com/narcotic-sh/senko.git[nvidia-old]"
+uv pip install "senko[nvidia-old]"
+
+# For NVIDIA GPUs on native Windows with CUDA compute capability >= 7.5
+uv pip install "senko[nvidia-windows]"
+
+# For NVIDIA GPUs on native Windows with CUDA compute capability < 7.5
+uv pip install "senko[nvidia-old-windows]"
 
 # For Mac (macOS 14+) and CPU execution on all other platforms
-uv pip install "git+https://github.com/narcotic-sh/senko.git"
+uv pip install senko
 ```
 For NVIDIA, make sure the installed driver is CUDA 12 capable (should see `CUDA Version: 12+` in `nvidia-smi`).
+
+PyPI alpha wheels are smoke-tested on GitHub-hosted runners, which cover packaging and CPU/default initialization but not GPU end-to-end execution.
 
 For setting up Senko for development, see [`DEV_SETUP.md`](DEV_SETUP.md).
 
