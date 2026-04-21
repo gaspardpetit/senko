@@ -6,7 +6,6 @@ import yaml
 import time
 import wave
 import ctypes
-import psutil
 import shutil
 import numpy as np
 from termcolor import colored
@@ -48,7 +47,7 @@ class Diarizer:
         else:
             self.torch_device = (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")) if device == 'auto' else torch.device(device)
             self.device = self.torch_device.type
-            self.logical_cores = psutil.cpu_count(logical=True)
+            self.logical_cores = os.cpu_count() or 1
 
         self._print(f"Using device: {self.device}")
 

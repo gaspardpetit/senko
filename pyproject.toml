@@ -65,7 +65,6 @@ dependencies = [
     "pyyaml",
     "soundfile",
     "termcolor",
-    "psutil",
     "colour-science",
     "silero-vad; sys_platform != 'darwin'",
     "torch>=2.8,<3; sys_platform != 'darwin'",
