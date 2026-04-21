@@ -611,7 +611,7 @@ class Diarizer:
         return features_copy, frames_per_seg_copy, subsegment_offsets_copy, features.feature_dim
 
     def _extract_fbank_features_gpu(self, audio_source, subsegments):
-        import torchaudio
+        import soundfile as sf
         import torch.nn.functional as F
         
         sample_rate = 16000
@@ -619,8 +619,16 @@ class Diarizer:
         if isinstance(audio_source, np.ndarray):
             wav = torch.from_numpy(audio_source)
         else:
-            wav, sr = torchaudio.load(audio_source)  # shape: (1, num_samples) on CPU
-            wav = wav.squeeze(0)  # drop channel dim to 1-D samples
+            wav, sr = sf.read(audio_source, dtype='float32', always_2d=False)
+            if sr != sample_rate:
+                raise AudioFormatError(
+                    f"Audio file must be 16kHz mono 16-bit WAV. Current sample rate: {sr}Hz"
+                )
+            if getattr(wav, 'ndim', 1) != 1:
+                raise AudioFormatError(
+                    f"Audio file must be mono for GPU fbank extraction. Current shape: {getattr(wav, 'shape', None)}"
+                )
+            wav = torch.from_numpy(np.ascontiguousarray(wav))
 
         BATCH_SEGMENTS = 256
 
