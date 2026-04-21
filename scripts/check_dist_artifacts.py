@@ -77,6 +77,8 @@ def main(argv: list[str]) -> None:
     candidates: list[Path] = []
     for raw_path in argv[1:]:
         path = Path(raw_path)
+        if not path.exists():
+            raise SystemExit(f"Distribution path does not exist: {path}")
         if path.is_dir():
             candidates.extend(sorted(child for child in path.iterdir() if child.suffix == ".whl" or child.name.endswith(".tar.gz")))
         else:

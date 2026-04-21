@@ -1,7 +1,9 @@
 import json
 import os
 import platform
+import re
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 import importlib.resources
@@ -19,6 +21,7 @@ else:
 FBANK_LIB_FILENAME = FBANK_LIB_FILENAMES[0]
 
 PACKAGE_DIR = Path(str(importlib.resources.files('senko')))
+PROJECT_ROOT = PACKAGE_DIR.parent
 
 
 def _find_existing_path(root: Path, candidate_names: tuple[str, ...]) -> Path | None:
@@ -52,9 +55,8 @@ _package_fbank_lib = _find_existing_path(PACKAGE_DIR, FBANK_LIB_FILENAMES)
 IS_DEV_MODE = _package_fbank_lib is None
 
 if IS_DEV_MODE:
-    project_root = Path(__file__).parent.parent
-    BUILD_DIR = project_root / 'build'
-    DEFAULT_MODELS_DIR = project_root / 'models'
+    BUILD_DIR = PROJECT_ROOT / 'build'
+    DEFAULT_MODELS_DIR = PROJECT_ROOT / 'models'
 else:
     DEFAULT_MODELS_DIR = PACKAGE_DIR / 'models'
 
@@ -118,11 +120,90 @@ def get_default_model_dir() -> Path:
     return DEFAULT_MODELS_DIR
 
 
+def _generated_senko_version() -> str | None:
+    try:
+        from . import _version
+    except ImportError:
+        return None
+
+    for attr_name in ('version', '__version__'):
+        value = getattr(_version, attr_name, None)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _scm_senko_version() -> str | None:
+    try:
+        from setuptools_scm import get_version
+    except ImportError:
+        return None
+
+    try:
+        return get_version(
+            root=str(PROJECT_ROOT),
+            relative_to=__file__,
+            tag_regex=r'^v(?P<version>\d+\.\d+\.\d+)$',
+        )
+    except Exception:
+        return None
+
+
+def _git_describe_senko_version() -> str | None:
+    try:
+        result = subprocess.run(
+            [
+                'git',
+                'describe',
+                '--dirty',
+                '--tags',
+                '--long',
+                '--match',
+                'v[0-9]*.[0-9]*.[0-9]*',
+            ],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+    description = result.stdout.strip()
+    match = re.fullmatch(
+        r'v(?P<tag>\d+\.\d+\.\d+)-(?P<distance>\d+)-g(?P<commit>[0-9a-f]+)(?P<dirty>-dirty)?',
+        description,
+    )
+    if match is None:
+        return None
+
+    tag = match.group('tag')
+    distance = match.group('distance')
+    commit = match.group('commit')
+    dirty = match.group('dirty') is not None
+    if distance == '0':
+        if dirty:
+            return f'{tag}+dirty'
+        return tag
+
+    version_suffix = f'g{commit}'
+    if dirty:
+        version_suffix = f'{version_suffix}.dirty'
+    return f'{tag}.dev{distance}+{version_suffix}'
+
+
 def get_senko_version() -> str:
     try:
         return version('senko')
     except PackageNotFoundError:
-        return '0.1.0'
+        pass
+
+    for fallback in (_generated_senko_version, _scm_senko_version, _git_describe_senko_version):
+        resolved = fallback()
+        if resolved:
+            return resolved
+
+    return '0.0.0'
 
 
 def resolve_configured_model_dir(model_dir=None) -> Path | None:

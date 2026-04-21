@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -67,6 +69,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -83,7 +87,7 @@ jobs:
         run: uv pip install --system build
 
       - name: Build source distribution
-        run: python -m build --sdist
+        run: python -m build --sdist -o dist
 
       - name: Audit sdist artifact
         run: python scripts/check_dist_artifacts.py dist
@@ -101,8 +105,14 @@ jobs:
     needs:
       - build-wheels
       - build-sdist
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
+      - name: Create artifact directory
+        run: mkdir -p dist
+
       - name: Download wheel artifacts
         uses: actions/download-artifact@v4
         with:
@@ -118,16 +128,19 @@ jobs:
 
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
+      - name: Validate release tag against built artifacts
+        run: python scripts/validate_release_version.py "${{ github.ref_name }}" dist
+
       - name: Final artifact audit
         run: python scripts/check_dist_artifacts.py dist
 
       - name: Publish distributions
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}

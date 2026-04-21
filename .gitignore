@@ -24,3 +24,4 @@ audio/
 examples/*
 !examples/*.py
 build4/
+senko/_version.py
