@@ -1,3 +1,6 @@
+[![CI](https://github.com/gaspardpetit/senko/actions/workflows/ci.yml/badge.svg)](https://github.com/gaspardpetit/senko/actions/workflows/ci.yml)![PyPI - Version](https://img.shields.io/pypi/v/senko)
+
+
 # Senko
 > 閃光 (senkō) - a flash of light
 
