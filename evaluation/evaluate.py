@@ -1,6 +1,4 @@
 import warnings
-warnings.filterwarnings("ignore", message=".*torchaudio._backend.*", category=UserWarning)
-warnings.filterwarnings("ignore", message=".*TorchAudio.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*torchcodec.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*scikit-learn version.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*Torch version.*", category=UserWarning)

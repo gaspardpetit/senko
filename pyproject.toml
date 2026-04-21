@@ -58,6 +58,8 @@ dependencies = [
     "scikit-learn",
     "umap-learn",
     "hdbscan",
+    # Keep Numba and llvmlite explicit: Senko forces numba.njit(cache=True) at import time
+    # to sharply reduce repeated cold clustering warmup across fresh processes.
     "numba",
     "llvmlite",
     "pyyaml",
@@ -74,8 +76,6 @@ dependencies = [
 # CUDA 12 capable driver + CUDA compute capability < 7.5
 nvidia-old = [
     "torch>=2.8,<3",
-    "torchaudio>=2.8,<3",
-    "torchvision>=0.23,<1",
     "asteroid-filterbanks",
     "einops",
     "kaldifeat"
@@ -84,8 +84,6 @@ nvidia-old = [
 # CUDA 12 capable driver + CUDA compute capability >= 7.5
 nvidia = [
     "torch>=2.8,<3",
-    "torchaudio>=2.8,<3",
-    "torchvision>=0.23,<1",
     "asteroid-filterbanks",
     "einops",
     "kaldifeat",
@@ -96,8 +94,6 @@ nvidia = [
 # Same as nvidia, without RAPIDS and kaldifeat
 nvidia-windows = [
     "torch>=2.8,<3",
-    "torchaudio>=2.8,<3",
-    "torchvision>=0.23,<1",
     "asteroid-filterbanks",
     "einops",
 ]
@@ -105,8 +101,6 @@ nvidia-windows = [
 # Same as nvidia-old, without kaldifeat
 nvidia-old-windows = [
     "torch>=2.8,<3",
-    "torchaudio>=2.8,<3",
-    "torchvision>=0.23,<1",
     "asteroid-filterbanks",
     "einops"
 ]
@@ -198,23 +192,11 @@ conflicts = [
 ]
 
 [tool.uv.sources]
-# Override torch/torchaudio for:
+# Override torch for:
 #   nvidia -> use CUDA 12.9 torch
 #   nvidia-windows -> use CUDA 12.8 torch
 #   nvidia-old + nvidia-old-windows -> use CUDA 12.6 torch
 torch = [
-    { index = "pytorch-cu129", extra = "nvidia" },
-    { index = "pytorch-cu128", extra = "nvidia-windows" },
-    { index = "pytorch-cu126", extra = "nvidia-old" },
-    { index = "pytorch-cu126", extra = "nvidia-old-windows" },
-]
-torchaudio = [
-    { index = "pytorch-cu129", extra = "nvidia" },
-    { index = "pytorch-cu128", extra = "nvidia-windows" },
-    { index = "pytorch-cu126", extra = "nvidia-old" },
-    { index = "pytorch-cu126", extra = "nvidia-old-windows" },
-]
-torchvision = [
     { index = "pytorch-cu129", extra = "nvidia" },
     { index = "pytorch-cu128", extra = "nvidia-windows" },
     { index = "pytorch-cu126", extra = "nvidia-old" },
