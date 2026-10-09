@@ -24,7 +24,7 @@ with sf.SoundFile("audio.wav") as audio:
 
 Supply 16 kHz mono samples, as required by `diarize_samples()`. The caller chooses when to send each chunk; larger chunks reduce the number of updates.
 
-Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD reuse completed VAD work. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
+Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Raw audio outside the active VAD and feature tail is released. VAD history, embeddings, and full-prefix results still grow with recording length. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD reuse completed VAD work. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
 
 ### `Diarizer`
 ```python

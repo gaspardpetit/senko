@@ -33,7 +33,7 @@ class SchedulingTests(unittest.TestCase):
 
         stream = DiarizationStream(Diarizer())
         chunk = np.zeros(15 * 16000, dtype=np.float32)
-        for _ in range(100):
+        for _ in range(1000):
             stream.append(chunk)
             stream.update(force=True)
             self.assertLessEqual(stream._total_samples - stream._audio_start_samples, 30 * 16000)

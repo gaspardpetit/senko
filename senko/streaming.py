@@ -51,7 +51,6 @@ class DiarizationStream:
         self._vad_regular_scores: list[np.ndarray] = []
         self._coreml_complete_chunks = 0
         self._silero_probs: list[float] = []
-        self._silero_incremental_postprocess = False
         self._silero_model = None
         self._features: dict[tuple[float, float], np.ndarray] = {}
         self._embedding_batches: dict[tuple[tuple[float, float], ...], np.ndarray] = {}
@@ -166,7 +165,7 @@ class DiarizationStream:
             window = 160000
             discard_before = min(self._coreml_complete_chunks * window, cutoff - 2 * window)
             discard_before = discard_before // window * window
-        elif getattr(d, "vad_model_type", None) == "silero" and self._silero_incremental_postprocess:
+        elif getattr(d, "vad_model_type", None) == "silero" and self._silero_probs:
             window = 512
             discard_before = min(len(self._silero_probs) * window, cutoff - 2 * 16000)
             discard_before = discard_before // window * window
@@ -224,7 +223,6 @@ class DiarizationStream:
                 d._timing_stats["vad_time"] = round(time.perf_counter() - vad_started, 2)
             else:
                 vad_started = time.perf_counter()
-                self._silero_incremental_postprocess = True
                 previous_windows = len(self._silero_probs)
                 vad_segments = self._silero_vad(audio, get_speech_timestamps_from_probs)
                 vad_cache = {
@@ -357,9 +355,11 @@ class DiarizationStream:
         if self._silero_model is None:
             self._silero_model = copy.deepcopy(d.vad_model_silero)
             self._silero_model.reset_states()
-        complete_count = len(audio) // 512
+        total_samples = self._audio_start_samples + len(audio)
+        complete_count = total_samples // 512
         cached_probs = self._silero_probs
         persistent_model = self._silero_model
+        tail = torch.from_numpy(audio)
 
         class CachedModel:
             def __init__(self):
@@ -373,6 +373,10 @@ class DiarizationStream:
                 self.index += 1
                 if index < len(cached_probs):
                     return torch.tensor(cached_probs[index])
+                start = index * 512 - self_offset
+                chunk = tail[start:start + 512]
+                if len(chunk) < 512:
+                    chunk = torch.nn.functional.pad(chunk, (0, 512 - len(chunk)))
                 if index < complete_count:
                     probability = persistent_model(chunk, sampling_rate).item()
                     cached_probs.append(probability)
@@ -380,10 +384,11 @@ class DiarizationStream:
                     probability = copy.deepcopy(persistent_model)(chunk, sampling_rate).item()
                 return torch.tensor(probability)
 
+        self_offset = self._audio_start_samples
         d._set_torch_num_threads(1)
         try:
             timestamps = d.get_speech_timestamps_silero(
-                torch.from_numpy(audio), CachedModel(), threshold=0.55,
+                torch.zeros(1).expand(total_samples), CachedModel(), threshold=0.55,
                 min_speech_duration_ms=250, min_silence_duration_ms=100, return_seconds=False,
             )
             return [(float(item["start"]) / 16000, float(item["end"]) / 16000) for item in timestamps]
