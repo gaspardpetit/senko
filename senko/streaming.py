@@ -242,8 +242,11 @@ class DiarizationStream:
         # VAD can extend a subsegment beyond the available prefix. The fbank
         # extractor truncates it at EOF, so that feature changes when more
         # audio arrives even if the subsegment's timestamps stay identical.
-        features_by_segment = {segment: self._features[segment] for segment in subsegments if segment in self._features}
-        new_segments = [segment for segment in subsegments if segment not in features_by_segment]
+        old_batches = self._embedding_batches
+        batch_keys = [tuple(subsegments[start:start + 64]) for start in range(0, len(subsegments), 64)]
+        needed_segments = [segment for keys in batch_keys if keys not in old_batches for segment in keys]
+        features_by_segment = {segment: self._features[segment] for segment in needed_segments if segment in self._features}
+        new_segments = [segment for segment in needed_segments if segment not in features_by_segment]
         if new_segments:
             features, frames, offsets, dim = d._extract_fbank_features(
                 audio, new_segments, sample_offset=self._audio_start_samples,
@@ -256,17 +259,18 @@ class DiarizationStream:
             d._timing_stats["fbank_time"] = 0.0
 
         cutoff_seconds = (self._audio_start_samples + len(audio)) / 16000
+        # Only the final batch can change when speech near the growing edge
+        # extends. Older batches already have reusable embeddings.
+        final_batch = subsegments[-64:]
         self._features = {
-            segment: features_by_segment[segment]
-            for segment in subsegments
-            if segment[1] <= cutoff_seconds
+            segment: features_by_segment.get(segment, self._features.get(segment))
+            for segment in final_batch
+            if segment[1] <= cutoff_seconds and (segment in features_by_segment or segment in self._features)
         }
-        old_batches = self._embedding_batches
         new_batches = {}
         batch_embeddings = []
         new_batch_count = 0
-        for start in range(0, len(subsegments), 64):
-            keys = tuple(subsegments[start:start + 64])
+        for keys in batch_keys:
             if keys in old_batches:
                 batch = old_batches[keys]
             else:
@@ -303,7 +307,7 @@ class DiarizationStream:
         return result, {
             **vad_cache,
             "new_features": len(new_segments),
-            "reused_features": len(subsegments) - len(new_segments),
+            "reused_features": len(needed_segments) - len(new_segments),
             "new_embedding_batches": new_batch_count,
             "reused_embedding_batches": len(subsegments[::64]) - new_batch_count,
         }

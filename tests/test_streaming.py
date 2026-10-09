@@ -71,7 +71,7 @@ class SchedulingTests(unittest.TestCase):
             def _generate_subsegments(self, vad, accurate):
                 return [(0.0, 12.0)]
 
-            def _extract_fbank_features(self, audio, segments):
+            def _extract_fbank_features(self, audio, segments, *, sample_offset=0):
                 return np.array([len(audio)], dtype=np.float32), [1], [0], 1
 
             def _generate_embeddings(self, features, frames, offsets, dim):
