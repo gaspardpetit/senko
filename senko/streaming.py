@@ -148,7 +148,7 @@ class DiarizationStream:
                 self._audio_condition.notify_all()
             cache_stats["update_seconds"] = time.perf_counter() - started
             cache_stats["new_audio_seconds"] = (cutoff - previous_cutoff) / 16000
-            return {"cutoff_seconds": cutoff / 16000, "result": result, "cache_stats": cache_stats}
+        return {"cutoff_seconds": cutoff / 16000, "result": result, "cache_stats": cache_stats}
 
     def _diarize_prefix(self, audio: np.ndarray):
         d = self.diarizer
@@ -350,3 +350,30 @@ class DiarizationStream:
             return [(float(item["start"]) / 16000, float(item["end"]) / 16000) for item in timestamps]
         finally:
             d._set_torch_num_threads()
+
+
+class DiarizationSession:
+    """Synchronous diarization of a growing recording.
+
+    Each call to ``add_samples`` processes the complete available prefix while
+    reusing completed work. Returned results are independent snapshots.
+    """
+
+    def __init__(self, diarizer, *, accurate: bool | None = None, generate_colors: bool = False):
+        self._stream = DiarizationStream(diarizer, accurate=accurate, generate_colors=generate_colors)
+        self._session_lock = threading.Lock()
+        self._latest_result = None
+
+    def add_samples(self, samples, *, sample_rate: int = 16000):
+        """Append audio, process it, and return a copy of the diarization result."""
+        with self._session_lock:
+            self._stream.append(samples, sample_rate=sample_rate)
+            update = self._stream.update(force=True)
+            if update is not None:
+                self._latest_result = update["result"]
+            return copy.deepcopy(self._latest_result)
+
+    def get_diarization(self):
+        """Return a copy of the most recently computed result, or ``None``."""
+        with self._session_lock:
+            return copy.deepcopy(self._latest_result)

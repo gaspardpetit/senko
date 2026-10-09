@@ -2,37 +2,27 @@
 
 ### Growing recordings
 
-`DiarizationStream` publishes diarization of the complete audio prefix available at each update. Append mono audio as it arrives; the first automatic update is due after `initial_window_seconds`, and later updates are due after at least `minimum_increment_seconds` of new audio. If processing falls behind, the next update uses all audio received so far. `close()` publishes any shorter final remainder.
+`DiarizationSession` processes a growing recording. Each `add_samples()` call returns the diarization of all audio supplied so far, reusing completed work. The call is synchronous, so an app can run it in its own worker or with `asyncio.to_thread()`. Results are independent snapshots; later audio can change earlier speaker assignments.
 
 ```python
 import senko
 import soundfile as sf
 
-diarizer = senko.Diarizer(device="auto", quiet=True)
-stream = senko.DiarizationStream(
-    diarizer, initial_window_seconds=30, minimum_increment_seconds=15
-)
-
-def on_update(update):
-    result = update["result"]
-    segments = result["merged_segments"] if result else []
-    print(f'{update["cutoff_seconds"]:.1f}s: {segments}')
-
-stream.start(on_update)
+session = senko.DiarizationSession(senko.Diarizer(device="auto", quiet=True))
 with sf.SoundFile("audio.wav") as audio:
     if audio.samplerate != 16000 or audio.channels != 1:
         raise ValueError("Expected a 16 kHz mono WAV file")
     while True:
-        chunk = audio.read(16000, dtype="float32")
+        chunk = audio.read(15 * 16000, dtype="float32")
         if len(chunk) == 0:
             break
-        stream.append(chunk)
-stream.close()
+        result = session.add_samples(chunk)
+        print(result["merged_segments"] if result else [])
 ```
 
-For synchronous use, call `update()` after `append()`; it returns `None` until an update is due. `update(force=True)` publishes a shorter prefix immediately. Each update contains `cutoff_seconds`, the same result fields as `diarize_samples()` under `result` (or `None` for silence), and `cache_stats`. Results for earlier times may change when later speech changes the global speaker clusters. Keep the `Diarizer` dedicated to the stream while its worker is active.
+`get_diarization()` returns another copy of the last result without processing. Before the first update, or for a silent prefix, the result is `None`. Keep the `Diarizer` dedicated to the session while processing.
 
-Append 16 kHz mono samples, as required by `diarize_samples()`.
+Supply 16 kHz mono samples, as required by `diarize_samples()`. The caller chooses when to send each chunk; larger chunks reduce the number of updates.
 
 Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD reuse completed VAD work. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
 

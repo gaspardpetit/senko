@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from senko.streaming import DiarizationStream
+from senko.streaming import DiarizationSession, DiarizationStream
 
 
 class _AudioOnlyDiarizer:
@@ -14,6 +14,25 @@ class _AudioOnlyDiarizer:
 
 
 class SchedulingTests(unittest.TestCase):
+    def test_session_returns_independent_snapshots(self):
+        session = DiarizationSession(_AudioOnlyDiarizer())
+        calls = []
+
+        def process(audio):
+            calls.append(len(audio))
+            return {"merged_segments": [{"end": len(audio) / 16000}], "centroid": np.array([len(audio)])}, {}
+
+        session._stream._diarize_prefix = process
+        self.assertIsNone(session.get_diarization())
+        first = session.add_samples(np.zeros(16000, dtype=np.float32))
+        first["merged_segments"][0]["end"] = -1
+        first["centroid"][0] = -1
+        self.assertEqual(session.get_diarization()["merged_segments"][0]["end"], 1)
+        self.assertEqual(session.get_diarization()["centroid"][0], 16000)
+        second = session.add_samples(np.zeros(16000, dtype=np.float32))
+        self.assertEqual(second["merged_segments"][0]["end"], 2)
+        self.assertEqual(calls, [16000, 32000])
+
     def test_feature_touching_prefix_end_is_recomputed(self):
         class Diarizer(_AudioOnlyDiarizer):
             device = "cpu"
