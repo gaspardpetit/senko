@@ -734,7 +734,15 @@ class Diarizer:
 
             # Run CAM++ inference for this batch
             with torch.no_grad():
-                batch_embeddings = self.embeddings_model(batch)
+                if self.device == 'cuda':
+                    # TorchScript's first optimized inference for a new batch
+                    # shape can differ from subsequent calls on the same input.
+                    # Stable embeddings are needed when cached batches are
+                    # combined with new ones in a growing recording.
+                    with torch.jit.optimized_execution(False):
+                        batch_embeddings = self.embeddings_model(batch)
+                else:
+                    batch_embeddings = self.embeddings_model(batch)
                 embeddings.append(batch_embeddings)
 
         # Concatenate all embeddings and move to CPU

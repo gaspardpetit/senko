@@ -1,4 +1,5 @@
 from .diarizer import Diarizer, AudioFormatError
+from .streaming import DiarizationStream
 from .utils import speaker_similarity, save_json, save_rttm
 
 from . import config

@@ -16,6 +16,9 @@ class VADProcessorCoreML:
         self.lib.vad_process_file.restype = c_void_p
         self.lib.vad_process_samples.argtypes = [c_void_p, POINTER(c_float), c_size_t, POINTER(c_int32)]
         self.lib.vad_process_samples.restype = c_void_p
+        self.lib.vad_process_samples_incremental.argtypes = [c_void_p, POINTER(c_float), c_size_t, POINTER(c_int32)]
+        self.lib.vad_process_samples_incremental.restype = c_void_p
+        self.lib.vad_reset_incremental.argtypes = [c_void_p]
         self.lib.vad_free_segments.argtypes = [c_void_p]
         self.lib.vad_destroy.argtypes = [c_void_p]
 
@@ -49,7 +52,25 @@ class VADProcessorCoreML:
                 ctypes.byref(count)
             )
 
-        if not segments_ptr or count.value == 0:
+        return self._read_segments(segments_ptr, count.value)
+
+    def process_audio_incremental(self, audio):
+        """Process a growing float32 mono prefix, reusing completed 10-second chunks."""
+        audio = np.ascontiguousarray(audio, dtype=np.float32)
+        count = c_int32()
+        segments_ptr = self.lib.vad_process_samples_incremental(
+            self.processor,
+            audio.ctypes.data_as(POINTER(c_float)),
+            audio.size,
+            ctypes.byref(count),
+        )
+        return self._read_segments(segments_ptr, count.value)
+
+    def reset_incremental(self):
+        self.lib.vad_reset_incremental(self.processor)
+
+    def _read_segments(self, segments_ptr, count):
+        if not segments_ptr or count == 0:
             return []
 
         # Check for special invalid pointer
@@ -60,7 +81,7 @@ class VADProcessorCoreML:
         double_ptr = ctypes.cast(segments_ptr, POINTER(c_double))
         segments = []
 
-        for i in range(count.value):
+        for i in range(count):
             start = double_ptr[i * 2]
             end = double_ptr[i * 2 + 1]
             segments.append((start, end))

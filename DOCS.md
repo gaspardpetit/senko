@@ -1,5 +1,28 @@
 # Senko Documentation
 
+### Growing recordings
+
+`DiarizationStream` publishes diarization of the complete audio prefix available at each update. Append mono audio as it arrives; the first automatic update is due after `initial_window_seconds`, and later updates are due after at least `minimum_increment_seconds` of new audio. If processing falls behind, the next update uses all audio received so far. `close()` publishes any shorter final remainder.
+
+```python
+import senko
+
+diarizer = senko.Diarizer(device="cuda", vad="pyannote", quiet=True)
+stream = senko.DiarizationStream(
+    diarizer, initial_window_seconds=30, minimum_increment_seconds=15
+)
+stream.start(lambda update: print(update["cutoff_seconds"], update["result"]))
+stream.append(first_chunk, sample_rate=16000)
+stream.append(next_chunk, sample_rate=16000)
+stream.close()
+```
+
+For synchronous use, call `update()` after `append()`; it returns `None` until an update is due. `update(force=True)` publishes a shorter prefix immediately. Each update contains `cutoff_seconds`, the same result fields as `diarize_samples()` under `result` (or `None` for silence), and `cache_stats`. Results for earlier times may change when later speech changes the global speaker clusters. Keep the `Diarizer` dedicated to the stream while its worker is active.
+
+Append 16 kHz mono samples, as required by `diarize_samples()`.
+
+Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD versions with `get_speech_timestamps_from_probs` reuse completed VAD work; older Silero versions rerun VAD. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
+
 ### `Diarizer`
 ```python
 import senko
