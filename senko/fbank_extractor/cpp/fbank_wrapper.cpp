@@ -76,6 +76,18 @@ extern "C" {
         return build_feature_result(result, num_subsegments);
     }
 
+    FbankFeatures extract_fbank_features_from_memory_offset(FbankExtractorHandle handle,
+                                                            const float* samples,
+                                                            size_t num_samples,
+                                                            size_t sample_offset,
+                                                            float* subsegments_array,
+                                                            size_t num_subsegments) {
+        auto* extractor = reinterpret_cast<FbankExtractor*>(handle);
+        auto subsegments = build_subsegments(subsegments_array, num_subsegments);
+        auto result = extractor->extract_features_from_memory(samples, num_samples, subsegments, sample_offset);
+        return build_feature_result(result, num_subsegments);
+    }
+
     void free_fbank_features(FbankFeatures* features) {
         if (features) {
             delete[] features->data;

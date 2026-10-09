@@ -245,9 +245,9 @@ class DiarizationStream:
         features_by_segment = {segment: self._features[segment] for segment in subsegments if segment in self._features}
         new_segments = [segment for segment in subsegments if segment not in features_by_segment]
         if new_segments:
-            audio_offset = self._audio_start_samples / 16000
-            local_segments = [(start - audio_offset, end - audio_offset) for start, end in new_segments]
-            features, frames, offsets, dim = d._extract_fbank_features(audio, local_segments)
+            features, frames, offsets, dim = d._extract_fbank_features(
+                audio, new_segments, sample_offset=self._audio_start_samples,
+            )
             for segment, count, offset in zip(new_segments, frames, offsets):
                 start = int(offset)
                 end = start + int(count) * dim

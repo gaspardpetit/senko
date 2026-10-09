@@ -303,7 +303,8 @@ private:
 
 template <typename AudioReader>
 static FbankResult extract_features_impl(const AudioReader& audio_reader,
-                                         const std::vector<std::pair<float, float>>& subsegments) {
+                                         const std::vector<std::pair<float, float>>& subsegments,
+                                         size_t sample_offset = 0) {
     const size_t total_samples = audio_reader.num_samples();
 
     FeatureComputer fc;
@@ -326,7 +327,8 @@ static FbankResult extract_features_impl(const AudioReader& audio_reader,
     auto feat_worker = [&](size_t first, size_t last) {
         for (size_t i = first; i < last; ++i) {
             const auto& sub = subsegments[i];
-            size_t sample_start = static_cast<size_t>(sub.first * sample_rate);
+            size_t absolute_start = static_cast<size_t>(sub.first * sample_rate);
+            size_t sample_start = absolute_start >= sample_offset ? absolute_start - sample_offset : total_samples;
             size_t sample_len = static_cast<size_t>((sub.second - sub.first) * sample_rate);
 
             if (sample_len == 0) sample_len = 1;
@@ -404,7 +406,7 @@ FbankResult FbankExtractor::extract_features(const std::string& wav_path, const 
     return extract_features_impl(wav_reader, subsegments);
 }
 
-FbankResult FbankExtractor::extract_features_from_memory(const float* samples, size_t num_samples, const std::vector<std::pair<float, float>>& subsegments) {
+FbankResult FbankExtractor::extract_features_from_memory(const float* samples, size_t num_samples, const std::vector<std::pair<float, float>>& subsegments, size_t sample_offset) {
     MemoryAudioReader audio_reader(samples, num_samples);
-    return extract_features_impl(audio_reader, subsegments);
+    return extract_features_impl(audio_reader, subsegments, sample_offset);
 }

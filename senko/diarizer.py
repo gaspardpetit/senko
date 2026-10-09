@@ -176,6 +176,11 @@ class Diarizer:
                 ctypes.POINTER(ctypes.c_float), ctypes.c_size_t
             ]
             self.lib.extract_fbank_features_from_memory.restype = FbankFeatures
+            self.lib.extract_fbank_features_from_memory_offset.argtypes = [
+                ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_size_t,
+                ctypes.c_size_t, ctypes.POINTER(ctypes.c_float), ctypes.c_size_t,
+            ]
+            self.lib.extract_fbank_features_from_memory_offset.restype = FbankFeatures
             self.lib.free_fbank_features.argtypes = [ctypes.POINTER(FbankFeatures)]
             self.lib.free_fbank_features.restype = None
             self.fbank_extractor = self.lib.create_fbank_extractor()
@@ -573,10 +578,10 @@ class Diarizer:
         return subsegments
 
     @time_method('fbank_time', 'Fbank feature extraction')
-    def _extract_fbank_features(self, audio_source, subsegments):
+    def _extract_fbank_features(self, audio_source, subsegments, *, sample_offset=0):
         # GPU path: use kaldifeat when available on CUDA
         if getattr(self, 'use_gpu_fbank', False):
-            return self._extract_fbank_features_gpu(audio_source, subsegments)
+            return self._extract_fbank_features_gpu(audio_source, subsegments, sample_offset=sample_offset)
 
         # Convert subsegments to flat array
         subseg_array = np.array(subsegments, dtype=np.float32).flatten()
@@ -584,11 +589,16 @@ class Diarizer:
 
         if isinstance(audio_source, np.ndarray):
             sample_ptr = audio_source.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-            features = self.lib.extract_fbank_features_from_memory(
-                self.fbank_extractor,
-                sample_ptr, len(audio_source),
-                subseg_ptr, len(subsegments)
-            )
+            if sample_offset:
+                features = self.lib.extract_fbank_features_from_memory_offset(
+                    self.fbank_extractor, sample_ptr, len(audio_source), sample_offset,
+                    subseg_ptr, len(subsegments)
+                )
+            else:
+                features = self.lib.extract_fbank_features_from_memory(
+                    self.fbank_extractor, sample_ptr, len(audio_source),
+                    subseg_ptr, len(subsegments)
+                )
         else:
             wav_path_bytes = audio_source.encode('utf-8')
             features = self.lib.extract_fbank_features(self.fbank_extractor, wav_path_bytes, subseg_ptr, len(subsegments))
@@ -610,7 +620,7 @@ class Diarizer:
 
         return features_copy, frames_per_seg_copy, subsegment_offsets_copy, features.feature_dim
 
-    def _extract_fbank_features_gpu(self, audio_source, subsegments):
+    def _extract_fbank_features_gpu(self, audio_source, subsegments, *, sample_offset=0):
         import soundfile as sf
         import torch.nn.functional as F
         
@@ -642,7 +652,7 @@ class Diarizer:
             batch_segments = subsegments[b:b + BATCH_SEGMENTS]
             segment_tensors = []
             for start_sec, end_sec in batch_segments:
-                start = int(start_sec * sample_rate)
+                start = int(start_sec * sample_rate) - sample_offset
                 length = int((end_sec - start_sec) * sample_rate)
                 if length <= 0:
                     length = 1
