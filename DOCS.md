@@ -1,5 +1,25 @@
 # Senko Documentation
 
+### Growing recordings
+
+`DiarizationSession` processes a growing recording. Pass it 16 kHz mono chunks as your app receives them:
+
+```python
+import senko
+
+session = senko.DiarizationSession(senko.Diarizer(device="auto", quiet=True))
+for samples in audio_chunks:
+    result = session.add_samples(samples)
+    if result is not None:
+        print(result["merged_segments"])
+```
+
+`add_samples()` processes synchronously and returns an independent snapshot of the complete recording so far. In an async app, use `await asyncio.to_thread(session.add_samples, samples)` and await chunks in audio order. `get_diarization()` returns another copy of the last result without processing. Before the first update, or for a silent prefix, the result is `None`; later audio can change earlier speaker assignments.
+
+The caller chooses when to send each chunk; larger chunks reduce the number of updates. Keep the `Diarizer` dedicated to the session while processing.
+
+Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Raw audio outside the active VAD and feature tail is released. VAD history, embeddings, and full-prefix results still grow with recording length. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD reuse completed VAD work. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
+
 ### `Diarizer`
 ```python
 import senko

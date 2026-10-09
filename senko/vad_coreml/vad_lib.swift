@@ -370,6 +370,8 @@ private func parseWavHeader(fd: Int32) throws -> WavInfo {
     private let chunkSize = 160000  // 10 seconds at 16kHz
     private let sampleRate = 16000
     private let memoryOptimizer = ANEMemoryOptimizer()
+    private var incrementalRawSegments: [VADSegment] = []
+    private var incrementalCompleteChunks = 0
 
     // Configurable parameters
     @objc public var minDurationOn: Double = 0.25   // Minimum speech duration (seconds)
@@ -483,6 +485,55 @@ private func parseWavHeader(fd: Int32) throws -> WavInfo {
         }
 
         return mergeSegments(allSegments)
+    }
+
+    // Cache raw 10-second chunk results. Filtering must happen only after all
+    // chunks are merged, since short speech can cross a chunk boundary.
+    public func processIncrementalAudioSamples(_ samplesPtr: UnsafePointer<Float>, sampleCount: Int, sampleOffset: Int = 0) -> [VADSegment] {
+        guard let model = segmentationModel, sampleCount > 0 else { return [] }
+
+        let totalSamples = sampleOffset + sampleCount
+        let completeChunks = totalSamples / chunkSize
+        if completeChunks < incrementalCompleteChunks {
+            incrementalRawSegments.removeAll()
+            incrementalCompleteChunks = 0
+        }
+
+        var batch: [BorrowedAudioChunk] = []
+        batch.reserveCapacity(64)
+        for index in incrementalCompleteChunks..<completeChunks {
+            let start = index * chunkSize
+            batch.append(BorrowedAudioChunk(
+                startIndex: start - sampleOffset,
+                sampleCount: chunkSize,
+                chunkOffset: Double(start) / Double(sampleRate)
+            ))
+            if batch.count == 64 {
+                incrementalRawSegments.append(contentsOf: processBatch(samplesPtr: samplesPtr, batch: batch, model: model))
+                batch.removeAll(keepingCapacity: true)
+            }
+        }
+        if !batch.isEmpty {
+            incrementalRawSegments.append(contentsOf: processBatch(samplesPtr: samplesPtr, batch: batch, model: model))
+        }
+        incrementalCompleteChunks = completeChunks
+
+        var allSegments = incrementalRawSegments
+        let tailStart = completeChunks * chunkSize
+        if tailStart < totalSamples {
+            let tail = BorrowedAudioChunk(
+                startIndex: tailStart - sampleOffset,
+                sampleCount: totalSamples - tailStart,
+                chunkOffset: Double(tailStart) / Double(sampleRate)
+            )
+            allSegments.append(contentsOf: processBatch(samplesPtr: samplesPtr, batch: [tail], model: model))
+        }
+        return mergeSegments(allSegments)
+    }
+
+    public func resetIncrementalAudio() {
+        incrementalRawSegments.removeAll()
+        incrementalCompleteChunks = 0
     }
 
     private func processStreamedWav(at path: String, model: MLModel) throws -> [VADSegment] {
@@ -1064,6 +1115,59 @@ public func vad_process_samples(
     }
 
     return UnsafeMutableRawPointer(buffer)
+}
+
+@_cdecl("vad_process_samples_incremental")
+public func vad_process_samples_incremental(
+    _ processorPtr: UnsafeMutableRawPointer,
+    _ samplesPtr: UnsafePointer<Float>,
+    _ sampleCount: Int,
+    _ count: UnsafeMutablePointer<Int32>
+) -> UnsafeMutableRawPointer {
+    let processor = Unmanaged<VADProcessor>.fromOpaque(processorPtr).takeUnretainedValue()
+    let segments = processor.processIncrementalAudioSamples(samplesPtr, sampleCount: sampleCount)
+    count.pointee = Int32(segments.count)
+
+    guard segments.count > 0 else {
+        return UnsafeMutableRawPointer(bitPattern: 1)!
+    }
+
+    let buffer = UnsafeMutablePointer<Double>.allocate(capacity: segments.count * 2)
+    for (i, seg) in segments.enumerated() {
+        buffer[i * 2] = seg.start
+        buffer[i * 2 + 1] = seg.end
+    }
+    return UnsafeMutableRawPointer(buffer)
+}
+
+@_cdecl("vad_process_samples_incremental_offset")
+public func vad_process_samples_incremental_offset(
+    _ processorPtr: UnsafeMutableRawPointer,
+    _ samplesPtr: UnsafePointer<Float>,
+    _ sampleCount: Int,
+    _ sampleOffset: Int,
+    _ count: UnsafeMutablePointer<Int32>
+) -> UnsafeMutableRawPointer {
+    let processor = Unmanaged<VADProcessor>.fromOpaque(processorPtr).takeUnretainedValue()
+    let segments = processor.processIncrementalAudioSamples(samplesPtr, sampleCount: sampleCount, sampleOffset: sampleOffset)
+    count.pointee = Int32(segments.count)
+
+    guard segments.count > 0 else {
+        return UnsafeMutableRawPointer(bitPattern: 1)!
+    }
+
+    let buffer = UnsafeMutablePointer<Double>.allocate(capacity: segments.count * 2)
+    for (i, seg) in segments.enumerated() {
+        buffer[i * 2] = seg.start
+        buffer[i * 2 + 1] = seg.end
+    }
+    return UnsafeMutableRawPointer(buffer)
+}
+
+@_cdecl("vad_reset_incremental")
+public func vad_reset_incremental(_ processorPtr: UnsafeMutableRawPointer) {
+    let processor = Unmanaged<VADProcessor>.fromOpaque(processorPtr).takeUnretainedValue()
+    processor.resetIncrementalAudio()
 }
 
 @_cdecl("vad_free_segments")

@@ -120,10 +120,9 @@ class UmapHdbscan:
             min_dist=0.0,
             n_components=min(self.n_components, X.shape[0]-2),
             metric=self.metric,
-            # This is needed for reproducibility of results across runs ; however, in most cases with good audio, omitting it is fine.
-            # Cases with bad audio though can have inconsistent results across runs without this (missed speakers / confused with other speakers).
-            # Reason for omission is speed ; setting a random seed makes umap single threaded for some reason, which considerably slows things down
-            # random_state=42
+            # Keep long-recording results reproducible, including when a growing
+            # recording is compared with a fresh batch run of the same prefix.
+            random_state=42
         ).fit_transform(X)
         labels = hdbscan.HDBSCAN(min_samples=self.min_samples, min_cluster_size=self.min_cluster_size).fit_predict(umap_X)
         return labels

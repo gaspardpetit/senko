@@ -38,6 +38,13 @@ extern "C" {
                                          size_t num_samples,
                                          float* subsegments_array,
                                          size_t num_subsegments);
+
+    FBANK_EXPORT FbankFeatures extract_fbank_features_from_memory_offset(FbankExtractorHandle handle,
+                                         const float* samples,
+                                         size_t num_samples,
+                                         size_t sample_offset,
+                                         float* subsegments_array,
+                                         size_t num_subsegments);
     
     // Free features
     FBANK_EXPORT void free_fbank_features(FbankFeatures* features);

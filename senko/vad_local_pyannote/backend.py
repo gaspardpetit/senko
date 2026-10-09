@@ -108,6 +108,65 @@ class LocalSegmentationVADCuda:
             min_duration_off=self.parameters.min_duration_off,
         )
 
+    def process_incremental(self, audio_source, regular_scores: list[np.ndarray], *, sample_offset: int = 0, total_samples: int | None = None) -> list[tuple[float, float]]:
+        """Evaluate new regular windows and the provisional end window.
+
+        ``regular_scores`` belongs to one growing audio stream. Only windows
+        aligned to ``step_size`` are retained; the end-aligned window changes
+        when more samples arrive and must never be cached as a regular window.
+        """
+        waveform = load_audio_source(audio_source)
+        if waveform.size == 0:
+            return []
+
+        num_samples = sample_offset + len(waveform) if total_samples is None else total_samples
+        if sample_offset + len(waveform) != num_samples:
+            raise ValueError("Incremental VAD tail must end at the current cutoff.")
+        regular_count = max(0, (num_samples - self.window_size) // self.step_size + 1)
+        if len(regular_scores) > regular_count:
+            raise ValueError("Incremental VAD audio cannot shrink.")
+
+        tensor = self.torch.from_numpy(waveform).unsqueeze(0)
+        with self.torch.inference_mode():
+            for start_index in range(len(regular_scores), regular_count, self.batch_size):
+                end_index = min(start_index + self.batch_size, regular_count)
+                batch = self.torch.stack([
+                    tensor[:, index * self.step_size - sample_offset:index * self.step_size + self.window_size - sample_offset]
+                    for index in range(start_index, end_index)
+                ])
+                logits = self.model(batch.to(self.device))
+                regular_scores.extend(powerset_logits_to_speech(logits, self.mapping))
+
+            scores = list(regular_scores)
+            if num_samples < self.window_size or (num_samples - self.window_size) % self.step_size:
+                if num_samples < self.window_size:
+                    last_chunk = self.torch.nn.functional.pad(tensor, (0, self.window_size - num_samples))
+                else:
+                    last_chunk = tensor[:, num_samples - self.window_size - sample_offset:num_samples - sample_offset]
+                logits = self.model(last_chunk.unsqueeze(0).to(self.device))
+                scores.append(powerset_logits_to_speech(logits, self.mapping)[0])
+
+        aggregated = aggregate_sliding_scores(
+            np.stack(scores),
+            chunk_duration=self.chunk_duration,
+            chunk_step=self.chunk_step,
+            frame_start=self.frame_start,
+            frame_duration=self.frame_duration,
+            frame_step=self.frame_step,
+            total_duration=num_samples / self.sample_rate,
+            warm_up=self.warm_up,
+        )
+        return scores_to_segments(
+            aggregated[:, 0],
+            frame_start=self.frame_start,
+            frame_duration=self.frame_duration,
+            frame_step=self.frame_step,
+            onset=self.parameters.onset,
+            offset=self.parameters.offset,
+            min_duration_on=self.parameters.min_duration_on,
+            min_duration_off=self.parameters.min_duration_off,
+        )
+
 
 class LocalSegmentationVADCoreML:
     def __init__(self, lib_path, model_path, parameters: VADParameters | None = None):
@@ -121,3 +180,9 @@ class LocalSegmentationVADCoreML:
 
     def process(self, audio_source) -> list[tuple[float, float]]:
         return self.processor.process_audio(audio_source)
+
+    def process_incremental(self, audio_source, *, sample_offset: int = 0) -> list[tuple[float, float]]:
+        return self.processor.process_audio_incremental(audio_source, sample_offset=sample_offset)
+
+    def reset_incremental(self) -> None:
+        self.processor.reset_incremental()

@@ -75,6 +75,43 @@ class PostprocessTests(unittest.TestCase):
 
 
 class ChunkingTests(unittest.TestCase):
+    def test_incremental_windows_match_every_batch_prefix(self):
+        torch = _require_torch()
+        from senko.vad_local_pyannote.backend import LocalSegmentationVADCuda, VADParameters
+
+        class FakeModel:
+            def __init__(self):
+                self.windows_seen = 0
+
+            def __call__(self, batch):
+                self.windows_seen += len(batch)
+                values = batch[:, 0, :]
+                return torch.stack((torch.zeros_like(values), values), dim=-1)
+
+        backend = LocalSegmentationVADCuda.__new__(LocalSegmentationVADCuda)
+        backend.torch = torch
+        backend.model = FakeModel()
+        backend.device = torch.device("cpu")
+        backend.batch_size = 2
+        backend.window_size = 6
+        backend.step_size = 4
+        backend.sample_rate = 10
+        backend.chunk_duration = 0.6
+        backend.chunk_step = 0.4
+        backend.warm_up = (0.0, 0.0)
+        backend.frame_start = 0.0
+        backend.frame_duration = 0.1
+        backend.frame_step = 0.1
+        backend.mapping = torch.tensor([[0.0], [1.0]])
+        backend.parameters = VADParameters(min_duration_on=0.0, min_duration_off=0.0)
+
+        waveform = np.asarray([0, 1, 1, 0, 0, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1], dtype=np.float32)
+        cached = []
+        for length in (2, 5, 6, 8, 10, 13, 17, 20):
+            prefix = waveform[:length]
+            self.assertEqual(backend.process_incremental(prefix, cached), backend.process(prefix))
+            self.assertEqual(len(cached), max(0, (length - 6) // 4 + 1))
+
     def test_short_audio_is_padded_to_full_window(self):
         torch = _require_torch()
         from senko.vad_local_pyannote import LocalSegmentationVADCuda
