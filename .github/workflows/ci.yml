@@ -39,11 +39,11 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -p "test_*.py"
 
-      - name: Verify CoreML incremental VAD
+      - name: Verify CoreML streaming parity
         if: runner.os == 'macOS'
         run: |
           python -c "import platform; from senko import config; print(platform.system(), config.DARWIN)"
-          python -m unittest discover -s tests -p "test_vad_coreml_incremental.py" -v
+          python -m unittest discover -s tests -p "test_*coreml*.py" -v
 
   sdist:
     name: Build sdist

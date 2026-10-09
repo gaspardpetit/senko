@@ -1,0 +1,58 @@
+import math
+import platform
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+import numpy as np
+
+
+@unittest.skipUnless(platform.system() == "Darwin", "CoreML runs only on macOS")
+class CoreMLStreamingIntegrationTests(unittest.TestCase):
+    def test_streaming_matches_batch_on_generated_speech(self):
+        import soundfile as sf
+        from scipy.signal import resample_poly
+
+        import senko
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "speech.aiff"
+            subprocess.run(
+                ["say", "-o", str(path), "Please announce the next flight to Paris. The gate is now open."],
+                check=True,
+            )
+            speech, sample_rate = sf.read(path, dtype="float32")
+
+        if speech.ndim == 2:
+            speech = speech.mean(axis=1)
+        factor = math.gcd(sample_rate, 16000)
+        speech = resample_poly(speech, 16000 // factor, sample_rate // factor).astype(np.float32)
+        repeats = math.ceil((35 * 16000) / len(speech))
+        audio = np.concatenate((np.zeros(5 * 16000, dtype=np.float32), np.tile(speech, repeats)))
+
+        diarizer = senko.Diarizer(device="coreml", vad="pyannote", warmup=False, quiet=True)
+        stream = senko.DiarizationStream(diarizer, initial_window_seconds=10, minimum_increment_seconds=10)
+        previous = 0
+        for seconds in (10, 20, 30, 40):
+            cutoff = seconds * 16000
+            stream.append(audio[previous:cutoff])
+            previous = cutoff
+            actual = stream.update()["result"]
+            expected = diarizer.diarize_samples(audio[:cutoff])
+            self.assertEqual(actual is None, expected is None)
+            if expected is None:
+                continue
+            for key in ("vad", "raw_segments", "merged_segments", "raw_speakers_detected", "merged_speakers_detected"):
+                self.assertEqual(actual[key], expected[key], f"{key} mismatch at {seconds}s")
+            self.assertEqual(actual["speaker_centroids"].keys(), expected["speaker_centroids"].keys())
+            for key in expected["speaker_centroids"]:
+                np.testing.assert_allclose(
+                    actual["speaker_centroids"][key], expected["speaker_centroids"][key], rtol=1e-4, atol=1e-3
+                )
+
+        self.assertIsNotNone(actual, "Generated speech was not detected")
+
+
+if __name__ == "__main__":
+    unittest.main()
