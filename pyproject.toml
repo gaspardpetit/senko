@@ -58,10 +58,9 @@ dependencies = [
     "scikit-learn",
     "umap-learn",
     "hdbscan",
-    # Keep Numba and llvmlite explicit: Senko forces numba.njit(cache=True) at import time
+    # Keep Numba explicit: Senko forces numba.njit(cache=True) at import time
     # to sharply reduce repeated cold clustering warmup across fresh processes.
     "numba",
-    "llvmlite",
     "pyyaml",
     "soundfile",
     "termcolor",
