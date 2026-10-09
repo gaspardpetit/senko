@@ -6,14 +6,27 @@
 
 ```python
 import senko
+import soundfile as sf
 
-diarizer = senko.Diarizer(device="cuda", vad="pyannote", quiet=True)
+diarizer = senko.Diarizer(device="auto", quiet=True)
 stream = senko.DiarizationStream(
     diarizer, initial_window_seconds=30, minimum_increment_seconds=15
 )
-stream.start(lambda update: print(update["cutoff_seconds"], update["result"]))
-stream.append(first_chunk, sample_rate=16000)
-stream.append(next_chunk, sample_rate=16000)
+
+def on_update(update):
+    result = update["result"]
+    segments = result["merged_segments"] if result else []
+    print(f'{update["cutoff_seconds"]:.1f}s: {segments}')
+
+stream.start(on_update)
+with sf.SoundFile("audio.wav") as audio:
+    if audio.samplerate != 16000 or audio.channels != 1:
+        raise ValueError("Expected a 16 kHz mono WAV file")
+    while True:
+        chunk = audio.read(16000, dtype="float32")
+        if len(chunk) == 0:
+            break
+        stream.append(chunk)
 stream.close()
 ```
 

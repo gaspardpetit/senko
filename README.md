@@ -28,6 +28,8 @@ senko.save_rttm(result["merged_segments"], wav_path, 'audio_diarized.rttm')
 ```
 See [`examples/diarize.py`](examples/diarize.py) for an interactive script, and also read [`DOCS.md`](DOCS.md)
 
+For growing recordings, see [streaming diarization](DOCS.md#growing-recordings).
+
 Senko can also be used in a notebook, like [Google Colab](https://colab.research.google.com/drive/12WBChh5cdw-RKRStr5hlFgQLPy7R950o?usp=sharing) and [Modal Notebooks](https://modal.com/notebooks/mhamzaqayyum/main/nb-ioITGZf4CRHhpO1ftYAGXr).
 
 ## Model Directory
