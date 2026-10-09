@@ -8,6 +8,7 @@ import wave
 import ctypes
 import shutil
 import numpy as np
+import soundfile as sf
 from termcolor import colored
 
 from . import config
@@ -99,9 +100,8 @@ class Diarizer:
 
         # Silero VAD
         if self.vad_model_type == 'silero':
-            from silero_vad import load_silero_vad, read_audio, get_speech_timestamps
+            from silero_vad import load_silero_vad, get_speech_timestamps
             self.vad_model_silero = load_silero_vad()
-            self.read_audio_silero = read_audio
             self.get_speech_timestamps_silero = get_speech_timestamps
 
         self._print(f'Using {self.vad_model_type} VAD' + (' (CoreML)' if self.device == 'coreml' else ''))
@@ -532,7 +532,8 @@ class Diarizer:
             if isinstance(audio_source, np.ndarray):
                 wav = torch.from_numpy(audio_source)
             else:
-                wav = self.read_audio_silero(audio_source)
+                samples, _ = sf.read(audio_source, dtype='float32')
+                wav = torch.from_numpy(samples)
             speech_timestamps = self.get_speech_timestamps_silero(wav, self.vad_model_silero, threshold=0.55, min_speech_duration_ms=250, min_silence_duration_ms=100, return_seconds=False)
 
             # Convert from samples to seconds manually for full precision
