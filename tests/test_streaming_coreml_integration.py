@@ -28,6 +28,9 @@ class CoreMLStreamingIntegrationTests(unittest.TestCase):
             speech = speech.mean(axis=1)
         factor = math.gcd(sample_rate, 16000)
         speech = resample_poly(speech, 16000 // factor, sample_rate // factor).astype(np.float32)
+        peak = float(np.max(np.abs(speech)))
+        self.assertGreater(peak, 0, "macOS speech synthesis produced silent audio")
+        speech *= 0.9 / peak
         repeats = math.ceil((35 * 16000) / len(speech))
         audio = np.concatenate((np.zeros(5 * 16000, dtype=np.float32), np.tile(speech, repeats)))
 
