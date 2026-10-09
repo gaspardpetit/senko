@@ -50,9 +50,10 @@ class CoreMLStreamingIntegrationTests(unittest.TestCase):
                 self.assertEqual(actual[key], expected[key], f"{key} mismatch at {seconds}s")
             self.assertEqual(actual["speaker_centroids"].keys(), expected["speaker_centroids"].keys())
             for key in expected["speaker_centroids"]:
-                np.testing.assert_allclose(
-                    actual["speaker_centroids"][key], expected["speaker_centroids"][key], rtol=1e-4, atol=1e-3
-                )
+                with self.subTest(seconds=seconds, speaker=key, cache=update["cache_stats"]):
+                    np.testing.assert_allclose(
+                        actual["speaker_centroids"][key], expected["speaker_centroids"][key], rtol=1e-4, atol=1e-3
+                    )
 
         self.assertIsNotNone(actual, "Generated speech was not detected")
 
