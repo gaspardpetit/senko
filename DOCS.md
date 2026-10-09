@@ -2,27 +2,21 @@
 
 ### Growing recordings
 
-`DiarizationSession` processes a growing recording. Each `add_samples()` call returns the diarization of all audio supplied so far, reusing completed work. The call is synchronous, so an app can run it in its own worker or with `asyncio.to_thread()`. Results are independent snapshots; later audio can change earlier speaker assignments.
+`DiarizationSession` processes a growing recording. Pass it 16 kHz mono chunks as your app receives them:
 
 ```python
 import senko
-import soundfile as sf
 
 session = senko.DiarizationSession(senko.Diarizer(device="auto", quiet=True))
-with sf.SoundFile("audio.wav") as audio:
-    if audio.samplerate != 16000 or audio.channels != 1:
-        raise ValueError("Expected a 16 kHz mono WAV file")
-    while True:
-        chunk = audio.read(15 * 16000, dtype="float32")
-        if len(chunk) == 0:
-            break
-        result = session.add_samples(chunk)
-        print(result["merged_segments"] if result else [])
+for samples in audio_chunks:
+    result = session.add_samples(samples)
+    if result is not None:
+        print(result["merged_segments"])
 ```
 
-`get_diarization()` returns another copy of the last result without processing. Before the first update, or for a silent prefix, the result is `None`. Keep the `Diarizer` dedicated to the session while processing.
+`add_samples()` processes synchronously and returns an independent snapshot of the complete recording so far. In an async app, use `await asyncio.to_thread(session.add_samples, samples)` and await chunks in audio order. `get_diarization()` returns another copy of the last result without processing. Before the first update, or for a silent prefix, the result is `None`; later audio can change earlier speaker assignments.
 
-Supply 16 kHz mono samples, as required by `diarize_samples()`. The caller chooses when to send each chunk; larger chunks reduce the number of updates.
+The caller chooses when to send each chunk; larger chunks reduce the number of updates. Keep the `Diarizer` dedicated to the session while processing.
 
 Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Raw audio outside the active VAD and feature tail is released. VAD history, embeddings, and full-prefix results still grow with recording length. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD reuse completed VAD work. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
 
