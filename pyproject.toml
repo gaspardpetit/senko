@@ -86,8 +86,7 @@ nvidia = [
     "asteroid-filterbanks",
     "einops",
     "kaldifeat",
-    "cuml-cu12",
-    "cudf-cu12",
+    "cuml-cu12; sys_platform == 'linux'",
 ]
 
 # Same as nvidia, without RAPIDS and kaldifeat
