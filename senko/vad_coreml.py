@@ -18,6 +18,8 @@ class VADProcessorCoreML:
         self.lib.vad_process_samples.restype = c_void_p
         self.lib.vad_process_samples_incremental.argtypes = [c_void_p, POINTER(c_float), c_size_t, POINTER(c_int32)]
         self.lib.vad_process_samples_incremental.restype = c_void_p
+        self.lib.vad_process_samples_incremental_offset.argtypes = [c_void_p, POINTER(c_float), c_size_t, c_size_t, POINTER(c_int32)]
+        self.lib.vad_process_samples_incremental_offset.restype = c_void_p
         self.lib.vad_reset_incremental.argtypes = [c_void_p]
         self.lib.vad_free_segments.argtypes = [c_void_p]
         self.lib.vad_destroy.argtypes = [c_void_p]
@@ -54,14 +56,15 @@ class VADProcessorCoreML:
 
         return self._read_segments(segments_ptr, count.value)
 
-    def process_audio_incremental(self, audio):
+    def process_audio_incremental(self, audio, *, sample_offset=0):
         """Process a growing float32 mono prefix, reusing completed 10-second chunks."""
         audio = np.ascontiguousarray(audio, dtype=np.float32)
         count = c_int32()
-        segments_ptr = self.lib.vad_process_samples_incremental(
+        segments_ptr = self.lib.vad_process_samples_incremental_offset(
             self.processor,
             audio.ctypes.data_as(POINTER(c_float)),
             audio.size,
+            sample_offset,
             ctypes.byref(count),
         )
         return self._read_segments(segments_ptr, count.value)

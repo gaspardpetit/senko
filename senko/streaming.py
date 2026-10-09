@@ -1,4 +1,4 @@
-"""Batch-equivalent diarization of a growing in-memory recording."""
+"""Batch-equivalent diarization of a growing recording with a retained audio tail."""
 
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ class DiarizationStream:
         self.generate_colors = generate_colors
 
         self._audio_buffer = np.empty(0, dtype=np.float32)
+        self._audio_start_samples = 0
         self._total_samples = 0
         self._last_cutoff = 0
         self._audio_condition = threading.Condition()
@@ -50,6 +51,7 @@ class DiarizationStream:
         self._vad_regular_scores: list[np.ndarray] = []
         self._coreml_complete_chunks = 0
         self._silero_probs: list[float] = []
+        self._silero_incremental_postprocess = False
         self._silero_model = None
         self._features: dict[tuple[float, float], np.ndarray] = {}
         self._embedding_batches: dict[tuple[tuple[float, float], ...], np.ndarray] = {}
@@ -68,12 +70,14 @@ class DiarizationStream:
             if self._closed:
                 raise RuntimeError("Cannot append to a closed diarization stream.")
             new_total = self._total_samples + len(audio)
-            if new_total > len(self._audio_buffer):
-                capacity = max(new_total, 2 * len(self._audio_buffer), 16000)
+            retained = self._total_samples - self._audio_start_samples
+            needed = retained + len(audio)
+            if needed > len(self._audio_buffer):
+                capacity = max(needed, 2 * len(self._audio_buffer), 16000)
                 buffer = np.empty(capacity, dtype=np.float32)
-                buffer[:self._total_samples] = self._audio_buffer[:self._total_samples]
+                buffer[:retained] = self._audio_buffer[:retained]
                 self._audio_buffer = buffer
-            self._audio_buffer[self._total_samples:new_total] = audio
+            self._audio_buffer[retained:needed] = audio
             self._total_samples = new_total
             self._audio_condition.notify_all()
             return self._total_samples / 16000
@@ -139,16 +143,43 @@ class DiarizationStream:
                 threshold = self.initial_samples if self._last_cutoff == 0 else self._last_cutoff + self.increment_samples
                 if cutoff == self._last_cutoff or (not force and cutoff < threshold):
                     return None
-                audio = self._audio_buffer[:cutoff]
+                audio = self._audio_buffer[:cutoff - self._audio_start_samples]
 
             started = time.perf_counter()
             result, cache_stats = self._diarize_prefix(audio)
             with self._audio_condition:
                 self._last_cutoff = cutoff
+                self._discard_finalized_audio(cutoff)
                 self._audio_condition.notify_all()
             cache_stats["update_seconds"] = time.perf_counter() - started
             cache_stats["new_audio_seconds"] = (cutoff - previous_cutoff) / 16000
         return {"cutoff_seconds": cutoff / 16000, "result": result, "cache_stats": cache_stats}
+
+    def _discard_finalized_audio(self, cutoff: int):
+        """Release finalized samples while retaining VAD and feature boundaries."""
+        d = self.diarizer
+        if getattr(d, "vad_model_type", None) == "pyannote" and getattr(d, "device", None) == "cuda":
+            window = d.vad_backend.window_size
+            next_regular = len(self._vad_regular_scores) * d.vad_backend.step_size
+            discard_before = min(next_regular, cutoff - 2 * window)
+        elif getattr(d, "vad_model_type", None) == "pyannote" and getattr(d, "device", None) == "coreml":
+            window = 160000
+            discard_before = min(self._coreml_complete_chunks * window, cutoff - 2 * window)
+            discard_before = discard_before // window * window
+        elif getattr(d, "vad_model_type", None) == "silero" and self._silero_incremental_postprocess:
+            window = 512
+            discard_before = min(len(self._silero_probs) * window, cutoff - 2 * 16000)
+            discard_before = discard_before // window * window
+        else:
+            return
+        discard_before = max(self._audio_start_samples, discard_before)
+        if discard_before == self._audio_start_samples:
+            return
+        retained = self._total_samples - discard_before
+        buffer = np.empty(max(retained, 16000), dtype=np.float32)
+        buffer[:retained] = self._audio_buffer[discard_before - self._audio_start_samples:self._total_samples - self._audio_start_samples]
+        self._audio_buffer = buffer
+        self._audio_start_samples = discard_before
 
     def _diarize_prefix(self, audio: np.ndarray):
         d = self.diarizer
@@ -161,7 +192,9 @@ class DiarizationStream:
             set_fp32_precision("ieee")
             vad_started = time.perf_counter()
             previous_windows = len(self._vad_regular_scores)
-            vad_segments = d.vad_backend.process_incremental(audio, self._vad_regular_scores)
+            vad_segments = d.vad_backend.process_incremental(
+                audio, self._vad_regular_scores, sample_offset=self._audio_start_samples,
+            )
             vad_cache = {
                 "new_vad_windows": len(self._vad_regular_scores) - previous_windows,
                 "reused_vad_windows": previous_windows,
@@ -169,8 +202,8 @@ class DiarizationStream:
             d._timing_stats["vad_time"] = round(time.perf_counter() - vad_started, 2)
         elif d.vad_model_type == "pyannote" and d.device == "coreml":
             vad_started = time.perf_counter()
-            vad_segments = d.vad_backend.process_incremental(audio)
-            complete_chunks = len(audio) // 160000
+            vad_segments = d.vad_backend.process_incremental(audio, sample_offset=self._audio_start_samples)
+            complete_chunks = (self._audio_start_samples + len(audio)) // 160000
             vad_cache = {
                 "new_vad_windows": complete_chunks - self._coreml_complete_chunks,
                 "reused_vad_windows": self._coreml_complete_chunks,
@@ -191,6 +224,7 @@ class DiarizationStream:
                 d._timing_stats["vad_time"] = round(time.perf_counter() - vad_started, 2)
             else:
                 vad_started = time.perf_counter()
+                self._silero_incremental_postprocess = True
                 previous_windows = len(self._silero_probs)
                 vad_segments = self._silero_vad(audio, get_speech_timestamps_from_probs)
                 vad_cache = {
@@ -213,7 +247,9 @@ class DiarizationStream:
         features_by_segment = {segment: self._features[segment] for segment in subsegments if segment in self._features}
         new_segments = [segment for segment in subsegments if segment not in features_by_segment]
         if new_segments:
-            features, frames, offsets, dim = d._extract_fbank_features(audio, new_segments)
+            audio_offset = self._audio_start_samples / 16000
+            local_segments = [(start - audio_offset, end - audio_offset) for start, end in new_segments]
+            features, frames, offsets, dim = d._extract_fbank_features(audio, local_segments)
             for segment, count, offset in zip(new_segments, frames, offsets):
                 start = int(offset)
                 end = start + int(count) * dim
@@ -221,7 +257,7 @@ class DiarizationStream:
         else:
             d._timing_stats["fbank_time"] = 0.0
 
-        cutoff_seconds = len(audio) / 16000
+        cutoff_seconds = (self._audio_start_samples + len(audio)) / 16000
         self._features = {
             segment: features_by_segment[segment]
             for segment in subsegments
@@ -283,18 +319,21 @@ class DiarizationStream:
             self._silero_model.reset_states()
 
         window_size = 512
-        full_count, remainder = divmod(len(audio), window_size)
+        total_samples = self._audio_start_samples + len(audio)
+        full_count, remainder = divmod(total_samples, window_size)
         wav = torch.from_numpy(audio)
         d._set_torch_num_threads(1)
         try:
             with torch.no_grad():
                 for index in range(len(self._silero_probs), full_count):
-                    chunk = wav[index * window_size:(index + 1) * window_size]
+                    start = index * window_size - self._audio_start_samples
+                    chunk = wav[start:start + window_size]
                     self._silero_probs.append(self._silero_model(chunk, 16000).item())
                 probs = list(self._silero_probs)
                 if remainder:
                     tail_model = copy.deepcopy(self._silero_model)
-                    tail = torch.nn.functional.pad(wav[full_count * window_size:], (0, window_size - remainder))
+                    tail_start = full_count * window_size - self._audio_start_samples
+                    tail = torch.nn.functional.pad(wav[tail_start:], (0, window_size - remainder))
                     probs.append(tail_model(tail, 16000).item())
             timestamps = timestamps_from_probs(
                 probs,
@@ -303,7 +342,7 @@ class DiarizationStream:
                 min_speech_duration_ms=250,
                 min_silence_duration_ms=100,
                 return_seconds=False,
-                audio_length_samples=len(audio),
+                audio_length_samples=total_samples,
                 step=1,
             )
             return [(float(item["start"]) / 16000, float(item["end"]) / 16000) for item in timestamps]

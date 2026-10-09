@@ -14,6 +14,33 @@ class _AudioOnlyDiarizer:
 
 
 class SchedulingTests(unittest.TestCase):
+    def test_coreml_tail_stays_bounded_and_uses_absolute_offsets(self):
+        class Backend:
+            def __init__(self):
+                self.offsets = []
+
+            def reset_incremental(self):
+                pass
+
+            def process_incremental(self, audio, *, sample_offset=0):
+                self.offsets.append((sample_offset, len(audio)))
+                return []
+
+        class Diarizer(_AudioOnlyDiarizer):
+            device = "coreml"
+            vad_model_type = "pyannote"
+            vad_backend = Backend()
+
+        stream = DiarizationStream(Diarizer())
+        chunk = np.zeros(15 * 16000, dtype=np.float32)
+        for _ in range(100):
+            stream.append(chunk)
+            stream.update(force=True)
+            self.assertLessEqual(stream._total_samples - stream._audio_start_samples, 30 * 16000)
+        self.assertGreater(stream._audio_start_samples, 0)
+        self.assertTrue(all(offset + length == index * len(chunk)
+                            for index, (offset, length) in enumerate(stream.diarizer.vad_backend.offsets, 1)))
+
     def test_session_returns_independent_snapshots(self):
         session = DiarizationSession(_AudioOnlyDiarizer())
         calls = []
@@ -76,7 +103,7 @@ class SchedulingTests(unittest.TestCase):
             def reset_incremental(self):
                 self.resets += 1
 
-            def process_incremental(self, audio):
+            def process_incremental(self, audio, *, sample_offset=0):
                 self.calls.append(len(audio))
                 return []
 

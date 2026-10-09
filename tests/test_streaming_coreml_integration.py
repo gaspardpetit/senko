@@ -39,6 +39,9 @@ class CoreMLStreamingIntegrationTests(unittest.TestCase):
             stream.append(audio[previous:cutoff])
             previous = cutoff
             update = stream.update(force=True)
+            self.assertLessEqual(stream._total_samples - stream._audio_start_samples, 30 * 16000)
+            if seconds >= 30:
+                self.assertGreater(stream._audio_start_samples, 0)
             actual = update["result"]
             expected = diarizer.diarize_samples(audio[:cutoff])
             self.assertEqual(actual is None, expected is None)
