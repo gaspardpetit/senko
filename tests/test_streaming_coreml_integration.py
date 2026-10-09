@@ -34,13 +34,16 @@ class CoreMLStreamingIntegrationTests(unittest.TestCase):
         diarizer = senko.Diarizer(device="coreml", vad="pyannote", warmup=False, quiet=True)
         stream = senko.DiarizationStream(diarizer, initial_window_seconds=10, minimum_increment_seconds=10)
         previous = 0
-        for seconds in (10, 20, 30, 40):
-            cutoff = seconds * 16000
+        for seconds in (4.9, 5, 5.1, 9.9, 10, 10.1, 20, 30, 40):
+            cutoff = round(seconds * 16000)
             stream.append(audio[previous:cutoff])
             previous = cutoff
-            actual = stream.update()["result"]
+            update = stream.update(force=True)
+            actual = update["result"]
             expected = diarizer.diarize_samples(audio[:cutoff])
             self.assertEqual(actual is None, expected is None)
+            if seconds >= 20:
+                self.assertGreater(update["cache_stats"]["reused_vad_windows"], 0)
             if expected is None:
                 continue
             for key in ("vad", "raw_segments", "merged_segments", "raw_speakers_detected", "merged_speakers_detected"):
