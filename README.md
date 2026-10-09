@@ -75,6 +75,7 @@ uv pip install "senko[nvidia-old-windows]"
 uv pip install senko
 ```
 For NVIDIA, make sure the installed driver is CUDA 12 capable (should see `CUDA Version: 12+` in `nvidia-smi`).
+On Linux/WSL, a matching [Kaldifeat CUDA wheel](https://csukuangfj.github.io/kaldifeat/cuda.html) optionally enables GPU Fbank extraction.
 
 PyPI alpha wheels are smoke-tested on GitHub-hosted runners, which cover packaging and CPU/default initialization but not GPU end-to-end execution.
 
@@ -89,7 +90,7 @@ It consists of four stages: VAD (voice activity detection), Fbank feature extrac
 
 The following modifications have been made:
 - VAD model has been swapped from FSMN-VAD to either Senko's local `pyannote` backend (powered by the bundled segmentation-3.0 assets) or [Silero VAD](https://github.com/snakers4/silero-vad)
-- Fbank feature extraction is done fully upfront, on the GPU using [kaldifeat](https://github.com/csukuangfj/kaldifeat) if on NVIDIA, and on the CPU using all cores otherwise. 
+- Fbank feature extraction is done fully upfront with the bundled C++ extractor, or with Kaldifeat on GPU when installed.
 - Batched inference of the CAM++ embedding model
 - Clustering when on NVIDIA (with a GPU of CUDA compute capability 7.0+) can be done on the GPU through [RAPIDS](https://docs.rapids.ai/api/cuml/stable/zero-code-change/)
 

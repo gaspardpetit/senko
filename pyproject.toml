@@ -76,8 +76,7 @@ dependencies = [
 nvidia-old = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
-    "einops",
-    "kaldifeat"
+    "einops"
 ]
 
 # CUDA 12 capable driver + CUDA compute capability >= 7.5
@@ -85,18 +84,17 @@ nvidia = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
     "einops",
-    "kaldifeat",
     "cuml-cu12; sys_platform == 'linux'",
 ]
 
-# Same as nvidia, without RAPIDS and kaldifeat
+# Same as nvidia, without RAPIDS
 nvidia-windows = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
     "einops",
 ]
 
-# Same as nvidia-old, without kaldifeat
+# Same as nvidia-old
 nvidia-old-windows = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
@@ -171,13 +169,6 @@ name = "nvidia-rapids"
 url = "https://pypi.nvidia.com"
 explicit = true
 
-# Kaldifeat prebuilt wheels (flat HTML index)
-[[tool.uv.index]]
-name = "kaldifeat-cuda"
-url = "https://csukuangfj.github.io/kaldifeat/cuda.html"
-format = "flat"
-explicit = true
-
 [tool.uv]
 # Prevent selecting multiple NVIDIA extras at once.
 conflicts = [
@@ -200,8 +191,6 @@ torch = [
     { index = "pytorch-cu126", extra = "nvidia-old" },
     { index = "pytorch-cu126", extra = "nvidia-old-windows" },
 ]
-kaldifeat = { index = "kaldifeat-cuda" }
-
 # RAPIDS packages
 cuml-cu12 = { index = "nvidia-rapids" }
 cudf-cu12 = { index = "nvidia-rapids" }
