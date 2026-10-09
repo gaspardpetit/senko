@@ -11,30 +11,17 @@ import numpy as np
 from .colors import generate_speaker_colors
 
 
-class DiarizationStream:
-    """Publish full-prefix results while reusing completed pipeline work.
-
-    Audio may be appended from another thread while an update is running. Each
-    update snapshots the latest complete append, coalescing any backlog into a
-    single batch-equivalent result. Call ``update`` again to catch up.
-    """
+class _IncrementalDiarizationEngine:
+    """Reuse completed pipeline work when diarizing a growing audio prefix."""
 
     def __init__(
         self,
         diarizer,
         *,
-        initial_window_seconds: float = 30.0,
-        minimum_increment_seconds: float = 15.0,
         accurate: bool | None = None,
         generate_colors: bool = False,
     ):
-        if initial_window_seconds <= 0 or minimum_increment_seconds <= 0:
-            raise ValueError("Window and increment must be positive.")
         self.diarizer = diarizer
-        self.initial_samples = round(initial_window_seconds * 16000)
-        self.increment_samples = round(minimum_increment_seconds * 16000)
-        if not self.initial_samples or not self.increment_samples:
-            raise ValueError("Window and increment must contain at least one sample.")
         self.accurate = accurate
         self.generate_colors = generate_colors
 
@@ -42,12 +29,8 @@ class DiarizationStream:
         self._audio_start_samples = 0
         self._total_samples = 0
         self._last_cutoff = 0
-        self._audio_condition = threading.Condition()
+        self._audio_lock = threading.Lock()
         self._processing_lock = threading.Lock()
-        self._closed = False
-        self._worker = None
-        self._on_update = None
-        self._worker_error = None
         self._vad_regular_scores: list[np.ndarray] = []
         self._coreml_complete_chunks = 0
         self._silero_probs: list[float] = []
@@ -59,15 +42,13 @@ class DiarizationStream:
 
     @property
     def available_seconds(self) -> float:
-        with self._audio_condition:
+        with self._audio_lock:
             return self._total_samples / 16000
 
     def append(self, samples, *, sample_rate: int = 16000) -> float:
         """Append mono samples and return the latest available audio time."""
         audio = self.diarizer._normalize_audio_samples(samples, sample_rate)
-        with self._audio_condition:
-            if self._closed:
-                raise RuntimeError("Cannot append to a closed diarization stream.")
+        with self._audio_lock:
             new_total = self._total_samples + len(audio)
             retained = self._total_samples - self._audio_start_samples
             needed = retained + len(audio)
@@ -78,78 +59,23 @@ class DiarizationStream:
                 self._audio_buffer = buffer
             self._audio_buffer[retained:needed] = audio
             self._total_samples = new_total
-            self._audio_condition.notify_all()
             return self._total_samples / 16000
 
-    def start(self, on_update):
-        """Start publishing updates on a worker thread via ``on_update``."""
-        if not callable(on_update):
-            raise TypeError("on_update must be callable.")
-        with self._audio_condition:
-            if self._worker is not None or self._closed:
-                raise RuntimeError("The diarization stream has already started or closed.")
-            self._on_update = on_update
-            self._worker = threading.Thread(target=self._run, name="senko-diarization-stream", daemon=True)
-            self._worker.start()
-
-    def close(self):
-        """Flush any pending audio and wait for the background worker."""
-        with self._audio_condition:
-            self._closed = True
-            self._audio_condition.notify_all()
-            worker = self._worker
-        if worker is None:
-            return self.update(force=True)
-        if threading.current_thread() is worker:
-            raise RuntimeError("The diarization worker cannot close itself.")
-        worker.join()
-        if self._worker_error is not None:
-            raise RuntimeError("The diarization worker failed.") from self._worker_error
-
-    def _run(self):
-        try:
-            while True:
-                with self._audio_condition:
-                    while True:
-                        pending = self._total_samples > self._last_cutoff
-                        threshold = self.initial_samples if self._last_cutoff == 0 else self._last_cutoff + self.increment_samples
-                        if self._closed and not pending:
-                            return
-                        if pending and (self._closed or self._total_samples >= threshold):
-                            break
-                        self._audio_condition.wait()
-                    flush = self._closed
-                update = self.update(force=flush)
-                if update is not None:
-                    self._on_update(update)
-        except BaseException as exc:
-            with self._audio_condition:
-                self._worker_error = exc
-                self._closed = True
-                self._audio_condition.notify_all()
-
-    def update(self, *, force: bool = False):
-        """Return the latest batch-equivalent result, or ``None`` if not due.
-
-        ``force`` publishes a short final remainder. The returned dictionary
-        has ``cutoff_seconds``, ``result`` (the regular diarization result),
-        and ``cache_stats``. A silent prefix has ``result=None``.
-        """
+    def update(self):
+        """Process all pending audio and return its full-prefix result."""
         with self._processing_lock:
-            with self._audio_condition:
+            with self._audio_lock:
                 cutoff = self._total_samples
                 previous_cutoff = self._last_cutoff
-                threshold = self.initial_samples if self._last_cutoff == 0 else self._last_cutoff + self.increment_samples
-                if cutoff == self._last_cutoff or (not force and cutoff < threshold):
+                if cutoff == self._last_cutoff:
                     return None
                 audio = self._audio_buffer[:cutoff - self._audio_start_samples]
 
             started = time.perf_counter()
             result, cache_stats = self._diarize_prefix(audio)
-            with self._audio_condition:
+            with self._audio_lock:
                 self._last_cutoff = cutoff
                 self._discard_finalized_audio(cutoff)
-                self._audio_condition.notify_all()
             cache_stats["update_seconds"] = time.perf_counter() - started
             cache_stats["new_audio_seconds"] = (cutoff - previous_cutoff) / 16000
         return {"cutoff_seconds": cutoff / 16000, "result": result, "cache_stats": cache_stats}
@@ -408,7 +334,7 @@ class DiarizationSession:
     """
 
     def __init__(self, diarizer, *, accurate: bool | None = None, generate_colors: bool = False):
-        self._stream = DiarizationStream(diarizer, accurate=accurate, generate_colors=generate_colors)
+        self._stream = _IncrementalDiarizationEngine(diarizer, accurate=accurate, generate_colors=generate_colors)
         self._session_lock = threading.Lock()
         self._latest_result = None
 
@@ -416,7 +342,7 @@ class DiarizationSession:
         """Append audio, process it, and return a copy of the diarization result."""
         with self._session_lock:
             self._stream.append(samples, sample_rate=sample_rate)
-            update = self._stream.update(force=True)
+            update = self._stream.update()
             if update is not None:
                 self._latest_result = update["result"]
             return copy.deepcopy(self._latest_result)

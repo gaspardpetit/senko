@@ -35,13 +35,14 @@ class CoreMLStreamingIntegrationTests(unittest.TestCase):
         audio = np.concatenate((np.zeros(5 * 16000, dtype=np.float32), np.tile(speech, repeats)))
 
         diarizer = senko.Diarizer(device="coreml", vad="pyannote", warmup=False, quiet=True)
-        stream = senko.DiarizationStream(diarizer, initial_window_seconds=10, minimum_increment_seconds=10)
+        from senko.streaming import _IncrementalDiarizationEngine
+        stream = _IncrementalDiarizationEngine(diarizer)
         previous = 0
         for seconds in (4.9, 5, 5.1, 9.9, 10, 10.1, 20, 30, 40):
             cutoff = round(seconds * 16000)
             stream.append(audio[previous:cutoff])
             previous = cutoff
-            update = stream.update(force=True)
+            update = stream.update()
             self.assertLessEqual(stream._total_samples - stream._audio_start_samples, 30 * 16000)
             if seconds >= 30:
                 self.assertGreater(stream._audio_start_samples, 0)

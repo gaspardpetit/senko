@@ -11,6 +11,7 @@ import numpy as np
 import soundfile as sf
 
 import senko
+from senko.streaming import _IncrementalDiarizationEngine
 
 
 def main():
@@ -20,12 +21,8 @@ def main():
     parser.add_argument("--device", choices=("cuda", "coreml", "cpu"), default="cuda")
     parser.add_argument("--accurate", choices=("auto", "yes", "no"), default="auto")
     parser.add_argument("--colors", action="store_true")
-    parser.add_argument("--initial", type=float, default=30)
-    parser.add_argument("--step", type=float, default=15)
     parser.add_argument("--repeat", type=int, default=1, help="Repeat the input to exercise long-recording clustering")
     parser.add_argument("--prepend-silence", type=float, default=0.0, help="Add initial silence in seconds")
-    parser.add_argument("--background", action="store_true", help="Feed checkpoints to the background worker")
-    parser.add_argument("--feed-delay", type=float, default=0.0, help="Delay after each background append")
     parser.add_argument("--checkpoints", type=float, nargs="+", default=[30, 45, 60, 75, 90, 105])
     args = parser.parse_args()
 
@@ -42,13 +39,7 @@ def main():
         audio = np.concatenate((np.zeros(round(args.prepend_silence * sample_rate), dtype=np.float32), audio))
     diarizer = senko.Diarizer(device=args.device, vad=args.vad, clustering="cpu", warmup=False, quiet=True)
     accurate = {"auto": None, "yes": True, "no": False}[args.accurate]
-    stream = senko.DiarizationStream(
-        diarizer,
-        initial_window_seconds=args.initial,
-        minimum_increment_seconds=args.step,
-        accurate=accurate,
-        generate_colors=args.colors,
-    )
+    stream = _IncrementalDiarizationEngine(diarizer, accurate=accurate, generate_colors=args.colors)
 
     def check(update, stream_seconds):
         cutoff = round(update["cutoff_seconds"] * sample_rate)
@@ -79,27 +70,15 @@ def main():
         }), flush=True)
 
     previous = 0
-    if args.background:
-        updates = []
-        stream.start(updates.append)
     for seconds in args.checkpoints:
         cutoff = min(round(seconds * sample_rate), len(audio))
         if cutoff <= previous:
             continue
         stream.append(audio[previous:cutoff], sample_rate=sample_rate)
         previous = cutoff
-        if args.background:
-            if args.feed_delay:
-                time.sleep(args.feed_delay)
-        else:
-            started = time.perf_counter()
-            update = stream.update(force=True)
-            check(update, time.perf_counter() - started)
-    if args.background:
-        stream.close()
-        assert updates and updates[-1]["cutoff_seconds"] == previous / sample_rate
-        for update in updates:
-            check(update, update["cache_stats"]["update_seconds"])
+        started = time.perf_counter()
+        update = stream.update()
+        check(update, time.perf_counter() - started)
 
 
 if __name__ == "__main__":
