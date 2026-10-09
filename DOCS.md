@@ -21,7 +21,7 @@ For synchronous use, call `update()` after `append()`; it returns `None` until a
 
 Append 16 kHz mono samples, as required by `diarize_samples()`.
 
-Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD versions with `get_speech_timestamps_from_probs` reuse completed VAD work; older Silero versions rerun VAD. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
+Completed VAD windows, unchanged speech features, and complete embedding batches are reused. Global clustering is rerun for each prefix to preserve batch speaker assignments. CUDA Pyannote, CoreML Pyannote, and Silero VAD reuse completed VAD work. On long recordings, seeded UMAP clustering is reproducible but can take substantially longer than updates on short recordings.
 
 ### `Diarizer`
 ```python

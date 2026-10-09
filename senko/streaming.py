@@ -181,7 +181,14 @@ class DiarizationStream:
             try:
                 from silero_vad import get_speech_timestamps_from_probs
             except ImportError:
-                vad_segments = d._perform_vad(audio)
+                vad_started = time.perf_counter()
+                previous_windows = len(self._silero_probs)
+                vad_segments = self._silero_vad_legacy(audio)
+                vad_cache = {
+                    "new_vad_windows": len(self._silero_probs) - previous_windows,
+                    "reused_vad_windows": previous_windows,
+                }
+                d._timing_stats["vad_time"] = round(time.perf_counter() - vad_started, 2)
             else:
                 vad_started = time.perf_counter()
                 previous_windows = len(self._silero_probs)
@@ -298,6 +305,47 @@ class DiarizationStream:
                 return_seconds=False,
                 audio_length_samples=len(audio),
                 step=1,
+            )
+            return [(float(item["start"]) / 16000, float(item["end"]) / 16000) for item in timestamps]
+        finally:
+            d._set_torch_num_threads()
+
+    def _silero_vad_legacy(self, audio):
+        """Reuse probabilities with Silero versions lacking from-probs postprocessing."""
+        import torch
+
+        d = self.diarizer
+        if self._silero_model is None:
+            self._silero_model = copy.deepcopy(d.vad_model_silero)
+            self._silero_model.reset_states()
+        complete_count = len(audio) // 512
+        cached_probs = self._silero_probs
+        persistent_model = self._silero_model
+
+        class CachedModel:
+            def __init__(self):
+                self.index = 0
+
+            def reset_states(self):
+                self.index = 0
+
+            def __call__(self, chunk, sampling_rate):
+                index = self.index
+                self.index += 1
+                if index < len(cached_probs):
+                    return torch.tensor(cached_probs[index])
+                if index < complete_count:
+                    probability = persistent_model(chunk, sampling_rate).item()
+                    cached_probs.append(probability)
+                else:
+                    probability = copy.deepcopy(persistent_model)(chunk, sampling_rate).item()
+                return torch.tensor(probability)
+
+        d._set_torch_num_threads(1)
+        try:
+            timestamps = d.get_speech_timestamps_silero(
+                torch.from_numpy(audio), CachedModel(), threshold=0.55,
+                min_speech_duration_ms=250, min_silence_duration_ms=100, return_seconds=False,
             )
             return [(float(item["start"]) / 16000, float(item["end"]) / 16000) for item in timestamps]
         finally:
