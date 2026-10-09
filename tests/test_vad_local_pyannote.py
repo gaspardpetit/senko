@@ -8,10 +8,7 @@ import numpy as np
 import soundfile as sf
 
 from senko import config
-from senko.vad_local_pyannote.postprocess import (
-    IncrementalSlidingScoreAggregator, aggregate_sliding_scores,
-    build_powerset_mapping, scores_to_segments,
-)
+from senko.vad_local_pyannote.postprocess import build_powerset_mapping, scores_to_segments
 
 
 EXPECTED_SYNTHETIC_SEGMENTS = [
@@ -52,31 +49,6 @@ def _require_torch():
 
 
 class PostprocessTests(unittest.TestCase):
-    def test_incremental_aggregation_matches_batch_with_provisional_tails(self):
-        rng = np.random.default_rng(19)
-        scores = rng.random((9, 12, 2), dtype=np.float32)
-        scores[2, 4, 0] = np.nan
-        scores[6, 1, 1] = np.nan
-        state = IncrementalSlidingScoreAggregator(1.0, 0.3, 0.0, 0.1, 0.08, (0.1, 0.2))
-        for count, duration in ((0, 0.4), (1, 1.0), (1, 1.15), (3, 1.65), (6, 2.5), (9, 3.4)):
-            regular = list(scores[:count])
-            tail = rng.random((12, 2), dtype=np.float32)
-            state.add_regular(regular)
-            actual = state.average(duration, tail)
-            expected = aggregate_sliding_scores(
-                np.stack([*regular, tail]), 1.0, 0.3, 0.0, 0.1, 0.08,
-                duration, warm_up=(0.1, 0.2),
-            )
-            np.testing.assert_array_equal(actual, expected)
-            if count:
-                np.testing.assert_array_equal(
-                    state.average(duration),
-                    aggregate_sliding_scores(
-                        np.stack(regular), 1.0, 0.3, 0.0, 0.1, 0.08,
-                        duration, warm_up=(0.1, 0.2),
-                    ),
-                )
-
     def test_no_speech_scores_return_empty_segments(self):
         scores = np.zeros(32, dtype=np.float32)
         segments = scores_to_segments(scores, frame_start=0.0, frame_duration=0.0619375, frame_step=0.016875)

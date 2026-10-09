@@ -4,7 +4,7 @@ import numpy as np
 
 from ..vad_coreml import VADProcessorCoreML
 from .audio import load_audio_source
-from .postprocess import IncrementalSlidingScoreAggregator, aggregate_sliding_scores, build_powerset_mapping, powerset_logits_to_speech, scores_to_segments
+from .postprocess import aggregate_sliding_scores, build_powerset_mapping, powerset_logits_to_speech, scores_to_segments
 
 
 @dataclass(frozen=True)
@@ -108,13 +108,7 @@ class LocalSegmentationVADCuda:
             min_duration_off=self.parameters.min_duration_off,
         )
 
-    def create_aggregation_state(self):
-        return IncrementalSlidingScoreAggregator(
-            self.chunk_duration, self.chunk_step, self.frame_start,
-            self.frame_duration, self.frame_step, self.warm_up,
-        )
-
-    def process_incremental(self, audio_source, regular_scores: list[np.ndarray], aggregation_state=None) -> list[tuple[float, float]]:
+    def process_incremental(self, audio_source, regular_scores: list[np.ndarray]) -> list[tuple[float, float]]:
         """Evaluate new regular windows and the provisional end window.
 
         ``regular_scores`` belongs to one growing audio stream. Only windows
@@ -141,30 +135,25 @@ class LocalSegmentationVADCuda:
                 logits = self.model(batch.to(self.device))
                 regular_scores.extend(powerset_logits_to_speech(logits, self.mapping))
 
-            tail_score = None
+            scores = list(regular_scores)
             if num_samples < self.window_size or (num_samples - self.window_size) % self.step_size:
                 if num_samples < self.window_size:
                     last_chunk = self.torch.nn.functional.pad(tensor, (0, self.window_size - num_samples))
                 else:
                     last_chunk = tensor[:, num_samples - self.window_size:num_samples]
                 logits = self.model(last_chunk.unsqueeze(0).to(self.device))
-                tail_score = powerset_logits_to_speech(logits, self.mapping)[0]
+                scores.append(powerset_logits_to_speech(logits, self.mapping)[0])
 
-        if aggregation_state is None:
-            scores = regular_scores + ([tail_score] if tail_score is not None else [])
-            aggregated = aggregate_sliding_scores(
-                np.stack(scores),
-                chunk_duration=self.chunk_duration,
-                chunk_step=self.chunk_step,
-                frame_start=self.frame_start,
-                frame_duration=self.frame_duration,
-                frame_step=self.frame_step,
-                total_duration=num_samples / self.sample_rate,
-                warm_up=self.warm_up,
-            )
-        else:
-            aggregation_state.add_regular(regular_scores)
-            aggregated = aggregation_state.average(num_samples / self.sample_rate, tail_score)
+        aggregated = aggregate_sliding_scores(
+            np.stack(scores),
+            chunk_duration=self.chunk_duration,
+            chunk_step=self.chunk_step,
+            frame_start=self.frame_start,
+            frame_duration=self.frame_duration,
+            frame_step=self.frame_step,
+            total_duration=num_samples / self.sample_rate,
+            warm_up=self.warm_up,
+        )
         return scores_to_segments(
             aggregated[:, 0],
             frame_start=self.frame_start,

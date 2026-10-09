@@ -48,11 +48,6 @@ class DiarizationStream:
         self._on_update = None
         self._worker_error = None
         self._vad_regular_scores: list[np.ndarray] = []
-        self._vad_aggregation = (
-            diarizer.vad_backend.create_aggregation_state()
-            if getattr(diarizer, "device", None) == "cuda" and diarizer.vad_model_type == "pyannote"
-            else None
-        )
         self._coreml_complete_chunks = 0
         self._silero_probs: list[float] = []
         self._silero_model = None
@@ -166,7 +161,7 @@ class DiarizationStream:
             set_fp32_precision("ieee")
             vad_started = time.perf_counter()
             previous_windows = len(self._vad_regular_scores)
-            vad_segments = d.vad_backend.process_incremental(audio, self._vad_regular_scores, self._vad_aggregation)
+            vad_segments = d.vad_backend.process_incremental(audio, self._vad_regular_scores)
             vad_cache = {
                 "new_vad_windows": len(self._vad_regular_scores) - previous_windows,
                 "reused_vad_windows": previous_windows,
