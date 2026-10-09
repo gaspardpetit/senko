@@ -14,6 +14,40 @@ class _AudioOnlyDiarizer:
 
 
 class SchedulingTests(unittest.TestCase):
+    def test_feature_touching_prefix_end_is_recomputed(self):
+        class Diarizer(_AudioOnlyDiarizer):
+            device = "cpu"
+            vad_model_type = "test"
+
+            def _perform_vad(self, audio):
+                return [(0.0, 12.0)]
+
+            def _generate_subsegments(self, vad, accurate):
+                return [(0.0, 12.0)]
+
+            def _extract_fbank_features(self, audio, segments):
+                return np.array([len(audio)], dtype=np.float32), [1], [0], 1
+
+            def _generate_embeddings(self, features, frames, offsets, dim):
+                return np.array([[features[0]]], dtype=np.float32)
+
+            def _perform_clustering(self, embeddings, segments):
+                segment = [{"speaker": "SPEAKER_01", "start": 0.0, "end": 12.0}]
+                return segment, segment, {"SPEAKER_01": embeddings[0]}
+
+        stream = DiarizationStream(Diarizer(), initial_window_seconds=10, minimum_increment_seconds=1)
+        stream.append(np.zeros(10 * 16000, dtype=np.float32))
+        first = stream.update()
+        stream.append(np.zeros(16000, dtype=np.float32))
+        second = stream.update()
+        self.assertEqual(first["cache_stats"]["new_features"], 1)
+        self.assertEqual(second["cache_stats"]["new_features"], 1)
+        self.assertEqual(second["cache_stats"]["new_embedding_batches"], 1)
+        self.assertNotEqual(
+            first["result"]["speaker_centroids"]["SPEAKER_01"][0],
+            second["result"]["speaker_centroids"]["SPEAKER_01"][0],
+        )
+
     def test_coreml_stream_uses_incremental_vad_and_resets_cache(self):
         class Backend:
             def __init__(self):

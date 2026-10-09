@@ -200,17 +200,26 @@ class DiarizationStream:
             return None, {**vad_cache, "new_features": 0, "reused_features": 0, "new_embedding_batches": 0, "reused_embedding_batches": 0}
 
         subsegments = d._generate_subsegments(vad_segments, self.accurate)
-        new_segments = [segment for segment in subsegments if segment not in self._features]
+        # VAD can extend a subsegment beyond the available prefix. The fbank
+        # extractor truncates it at EOF, so that feature changes when more
+        # audio arrives even if the subsegment's timestamps stay identical.
+        features_by_segment = {segment: self._features[segment] for segment in subsegments if segment in self._features}
+        new_segments = [segment for segment in subsegments if segment not in features_by_segment]
         if new_segments:
             features, frames, offsets, dim = d._extract_fbank_features(audio, new_segments)
             for segment, count, offset in zip(new_segments, frames, offsets):
                 start = int(offset)
                 end = start + int(count) * dim
-                self._features[segment] = features[start:end].copy().reshape(int(count), dim)
+                features_by_segment[segment] = features[start:end].copy().reshape(int(count), dim)
         else:
             d._timing_stats["fbank_time"] = 0.0
 
-        self._features = {segment: self._features[segment] for segment in subsegments}
+        cutoff_seconds = len(audio) / 16000
+        self._features = {
+            segment: features_by_segment[segment]
+            for segment in subsegments
+            if segment[1] <= cutoff_seconds
+        }
         old_batches = self._embedding_batches
         new_batches = {}
         batch_embeddings = []
@@ -220,13 +229,14 @@ class DiarizationStream:
             if keys in old_batches:
                 batch = old_batches[keys]
             else:
-                items = [self._features[key] for key in keys]
+                items = [features_by_segment[key] for key in keys]
                 frames = np.asarray([item.shape[0] for item in items], dtype=np.int32)
                 offsets = np.cumsum(np.r_[0, frames[:-1]], dtype=np.int64) * items[0].shape[1]
                 flat = np.concatenate([item.ravel() for item in items])
                 batch = d._generate_embeddings(flat, frames, offsets, items[0].shape[1])
                 new_batch_count += 1
-            new_batches[keys] = batch
+            if all(key[1] <= cutoff_seconds for key in keys):
+                new_batches[keys] = batch
             batch_embeddings.append(batch)
         self._embedding_batches = new_batches
         if not new_batch_count:
@@ -254,7 +264,7 @@ class DiarizationStream:
             "new_features": len(new_segments),
             "reused_features": len(subsegments) - len(new_segments),
             "new_embedding_batches": new_batch_count,
-            "reused_embedding_batches": len(new_batches) - new_batch_count,
+            "reused_embedding_batches": len(subsegments[::64]) - new_batch_count,
         }
 
     def _silero_vad(self, audio, timestamps_from_probs):
