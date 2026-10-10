@@ -1,14 +1,10 @@
 import numpy as np
-import colour
-from colour.models import RGB_COLOURSPACE_sRGB
-from colour import CCS_ILLUMINANTS
 
 GOLDEN_ANGLE = 137.508  # degrees
 L_MIN = 0.325           # Minimum lightness
 L_MAX = 0.85            # Maximum lightness
 FIXED_CHROMA = 0.15     # Fixed chroma value
 W = 0.5                 # Parameter for weighting segment count vs. speaking time: 0 (speaking time emphasis) to 1 (segment count emphasis)
-D65 = CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D65']
 L_a = 63.66             # Adapting luminance for H-K effect
 
 #######################################################################
@@ -85,15 +81,21 @@ def generate_speaker_colors(segments_data, i_advance):
 
 def oklch_to_hex(L, C, H):
     """Convert OKLCH color to hex code."""
+    import colour
+    from colour.models import RGB_COLOURSPACE_sRGB
+
+    d65 = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D65']
     JCh = np.array([L, C, H])
     Jab = colour.models.JCh_to_Jab(JCh)
     XYZ = colour.models.oklab.Oklab_to_XYZ(Jab)
-    RGB = colour.XYZ_to_RGB(XYZ, RGB_COLOURSPACE_sRGB, illuminant=D65, apply_cctf_encoding=True)
+    RGB = colour.XYZ_to_RGB(XYZ, RGB_COLOURSPACE_sRGB, illuminant=d65, apply_cctf_encoding=True)
     RGB = np.clip(RGB, 0, 1)  # Ensure RGB values are within [0, 1]
     return colour.notation.RGB_to_HEX(RGB)
 
 def compute_hk_factor(L, C, H):
     """Compute the Helmholtz-Kohlrausch factor Γ for the given OKLCH color."""
+    import colour
+
     # Convert OKLCH to XYZ
     JCh = np.array([L, C, H])
     Jab = colour.models.JCh_to_Jab(JCh)
