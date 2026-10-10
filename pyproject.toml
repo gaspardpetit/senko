@@ -75,7 +75,8 @@ dependencies = [
 nvidia-old = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
-    "einops"
+    "einops",
+    "matplotlib",
 ]
 
 # CUDA 12 capable driver + CUDA compute capability >= 7.5
@@ -83,6 +84,7 @@ nvidia = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
     "einops",
+    "matplotlib",
     "cuml-cu12; sys_platform == 'linux'",
 ]
 
@@ -91,13 +93,15 @@ nvidia-windows = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
     "einops",
+    "matplotlib",
 ]
 
 # Same as nvidia-old
 nvidia-old-windows = [
     "torch>=2.8,<3",
     "asteroid-filterbanks",
-    "einops"
+    "einops",
+    "matplotlib",
 ]
 
 
